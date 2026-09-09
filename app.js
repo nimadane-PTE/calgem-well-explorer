@@ -551,16 +551,37 @@ document.addEventListener("pointerdown", (event) => {
   if (!event.target.closest(".operator-section")) hideOperatorResults();
 });
 
-async function findExactWellAttribute(field, rawValue) {
-  const query = queryLayer.createQuery();
-  query.where = `UPPER(${field}) = '${escapeSql(normalize(rawValue))}'`;
-  query.outFields = [field];
-  query.returnGeometry = false;
-  query.returnDistinctValues = true;
-  query.num = 10;
+async function findMatchingWellAttribute(field, rawValue) {
+  const wanted = normalize(rawValue);
 
-  const response = await queryLayer.queryFeatures(query);
-  return response.features.map((feature) => safeText(feature.attributes[field], "")).find(Boolean) || null;
+  const exactQuery = queryLayer.createQuery();
+  exactQuery.where = `UPPER(${field}) = '${escapeSql(wanted)}'`;
+  exactQuery.outFields = [field];
+  exactQuery.returnGeometry = false;
+  exactQuery.returnDistinctValues = true;
+  exactQuery.num = 20;
+
+  const exactResponse = await queryLayer.queryFeatures(exactQuery);
+  const exact = exactResponse.features
+    .map((feature) => safeText(feature.attributes[field], ""))
+    .find(Boolean);
+  if (exact) return exact;
+
+  const containsQuery = queryLayer.createQuery();
+  containsQuery.where = `UPPER(${field}) LIKE '%${escapeSql(wanted)}%'`;
+  containsQuery.outFields = [field];
+  containsQuery.returnGeometry = false;
+  containsQuery.returnDistinctValues = true;
+  containsQuery.orderByFields = [`${field} ASC`];
+  containsQuery.num = 50;
+
+  const containsResponse = await queryLayer.queryFeatures(containsQuery);
+  const names = [...new Set(
+    containsResponse.features.map((feature) => safeText(feature.attributes[field], "")).filter(Boolean)
+  )];
+
+  if (!names.length) return null;
+  return names.sort((a, b) => a.length - b.length || a.localeCompare(b))[0];
 }
 
 async function resolveCity(rawValue) {
@@ -601,9 +622,9 @@ async function resolveLocation(rawLocation) {
   for (const rule of explicitRules) {
     if (lower.endsWith(` ${rule.word}`)) {
       const name = text.slice(0, -(rule.word.length + 1)).trim();
-      const exact = await findExactWellAttribute(rule.field, name);
-      return exact
-        ? { kind: rule.kind, label: exact, where: `${rule.field} = '${escapeSql(exact)}'`, geometries: null }
+      const match = await findMatchingWellAttribute(rule.field, name);
+      return match
+        ? { kind: rule.kind, label: match, where: `${rule.field} = '${escapeSql(match)}'`, geometries: null }
         : null;
     }
   }
@@ -615,7 +636,7 @@ async function resolveLocation(rawLocation) {
   const city = await resolveCity(text);
   if (city) return city;
 
-  const exactPlace = await findExactWellAttribute("Place", text);
+  const exactPlace = await findMatchingWellAttribute("Place", text);
   if (exactPlace) {
     return { kind: "CalGEM place", label: exactPlace, where: `Place = '${escapeSql(exactPlace)}'`, geometries: null };
   }
@@ -626,9 +647,9 @@ async function resolveLocation(rawLocation) {
     { field: "CountyName", kind: "County" },
     { field: "District", kind: "CalGEM district" }
   ]) {
-    const exact = await findExactWellAttribute(rule.field, text);
-    if (exact) {
-      return { kind: rule.kind, label: exact, where: `${rule.field} = '${escapeSql(exact)}'`, geometries: null };
+    const match = await findMatchingWellAttribute(rule.field, text);
+    if (match) {
+      return { kind: rule.kind, label: match, where: `${rule.field} = '${escapeSql(match)}'`, geometries: null };
     }
   }
 
@@ -685,6 +706,14 @@ async function postWellStarQuery(params) {
   return json;
 }
 
+async function getObjectIdsViaRest(where) {
+  const json = await postWellStarQuery({
+    where,
+    returnIdsOnly: "true"
+  });
+  return Array.isArray(json.objectIds) ? json.objectIds : [];
+}
+
 async function getSpatialObjectIdsViaRest(where, geometry) {
   const geometryJson = geometry.toJSON ? geometry.toJSON() : geometry;
   const wkid = geometry.spatialReference?.wkid || geometry.spatialReference?.latestWkid || 3857;
@@ -737,12 +766,17 @@ async function getWellGraphicsByObjectIds(objectIds) {
   return graphics;
 }
 
-async function queryCityCommandGraphics(where, location) {
+async function queryLocationCommandGraphics(where, location) {
   const ids = new Set();
 
-  for (const geometry of location.geometries || []) {
-    const geometryIds = await getSpatialObjectIdsViaRest(where, geometry);
-    geometryIds.forEach((id) => ids.add(id));
+  if (location?.geometries?.length) {
+    for (const geometry of location.geometries) {
+      const geometryIds = await getSpatialObjectIdsViaRest(where, geometry);
+      geometryIds.forEach((id) => ids.add(id));
+    }
+  } else {
+    const attributeIds = await getObjectIdsViaRest(where);
+    attributeIds.forEach((id) => ids.add(id));
   }
 
   return getWellGraphicsByObjectIds([...ids]);
@@ -789,7 +823,7 @@ function renderExactCommandResults(graphics) {
   commandResultsLayer.visible = true;
 }
 
-async function zoomToCityResult(graphics, location) {
+async function zoomToLocationResult(graphics, location) {
   if (graphics.length) {
     await view.goTo(graphics, { duration: 520, easing: "ease-out" });
     return;
@@ -834,15 +868,15 @@ async function runMapCommand(rawText) {
 
     const where = buildWhere(nextOperator, nextLocation, nextStatuses);
 
-    if (nextLocation?.geometries?.length) {
-      stage = "querying WellSTAR REST inside the city boundary";
-      const graphics = await queryCityCommandGraphics(where, nextLocation);
+    if (nextLocation) {
+      stage = `querying exact WellSTAR matches for ${nextLocation.kind}`;
+      const graphics = await queryLocationCommandGraphics(where, nextLocation);
 
-      stage = "drawing the exact city results";
+      stage = "drawing the exact location results";
       setControlsFromCommand(nextOperator, nextLocation, nextStatuses);
       renderExactCommandResults(graphics);
       clearSelection();
-      await zoomToCityResult(graphics, nextLocation);
+      await zoomToLocationResult(graphics, nextLocation);
 
       const description = [
         parsed.status ? parsed.status.toLowerCase() : null,
@@ -874,8 +908,7 @@ async function runMapCommand(rawText) {
     const description = [
       parsed.status ? parsed.status.toLowerCase() : null,
       "wells",
-      nextOperator ? `operated by ${nextOperator.label}` : null,
-      nextLocation ? `in ${nextLocation.label}` : null
+      nextOperator ? `operated by ${nextOperator.label}` : null
     ].filter(Boolean).join(" ");
 
     commandResponse.textContent = summary.count
