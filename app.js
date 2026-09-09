@@ -1,10 +1,12 @@
-const [Map, MapView, FeatureLayer, Home, ScaleBar, reactiveUtils] = await $arcgis.import([
+const [Map, MapView, FeatureLayer, Home, ScaleBar, reactiveUtils, Basemap, TileLayer] = await $arcgis.import([
   "@arcgis/core/Map.js",
   "@arcgis/core/views/MapView.js",
   "@arcgis/core/layers/FeatureLayer.js",
   "@arcgis/core/widgets/Home.js",
   "@arcgis/core/widgets/ScaleBar.js",
-  "@arcgis/core/core/reactiveUtils.js"
+  "@arcgis/core/core/reactiveUtils.js",
+  "@arcgis/core/Basemap.js",
+  "@arcgis/core/layers/TileLayer.js"
 ]);
 
 const WELL_LAYER_URL =
@@ -67,9 +69,6 @@ function safeText(value, fallback = "—") {
   return text || fallback;
 }
 
-// Use the WellStatus field directly instead of evaluating an Arcade expression
-// for every visible feature. This is lighter and preserves all unknown statuses
-// through the renderer's default symbol.
 const statusRenderer = {
   type: "unique-value",
   field: "WellStatus",
@@ -106,8 +105,6 @@ const wellPopup = {
   outFields: WELL_FIELDS
 };
 
-// Let ArcGIS manage the transition between clustered and individual wells using
-// maxScale. We no longer replace featureReduction repeatedly while the user zooms.
 const clusterConfig = {
   type: "cluster",
   maxScale: CLUSTER_MAX_SCALE,
@@ -150,7 +147,6 @@ const wells = new FeatureLayer({
   labelsVisible: false
 });
 
-// A separate query-only layer keeps search independent from the visible status filters.
 const searchLayer = new FeatureLayer({
   url: WELL_LAYER_URL,
   outFields: WELL_FIELDS,
@@ -158,10 +154,25 @@ const searchLayer = new FeatureLayer({
   labelsVisible: false
 });
 
+// Use the public cached Light Gray Canvas services directly. This avoids the
+// token-based Basemap Styles endpoint while retaining a clean, fast basemap.
+const lightGrayBasemap = new Basemap({
+  title: "Light Gray Canvas",
+  baseLayers: [
+    new TileLayer({
+      url: "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer"
+    })
+  ],
+  referenceLayers: [
+    new TileLayer({
+      url: "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer",
+      isReference: true
+    })
+  ]
+});
+
 const map = new Map({
-  // A quiet basemap gives wells visual priority while retaining roads, cities,
-  // county context, and other orientation cues.
-  basemap: "arcgis/light-gray",
+  basemap: lightGrayBasemap,
   layers: [wells]
 });
 
@@ -391,8 +402,6 @@ document.addEventListener("pointerdown", (event) => {
   if (!event.target.closest(".search-section")) hideSearchResults();
 });
 
-// This watcher now changes only explanatory text. It never changes the layer,
-// so mouse-wheel zooming does not trigger repeated cluster reconfiguration.
 reactiveUtils.watch(
   () => view.scale,
   (scale) => {
