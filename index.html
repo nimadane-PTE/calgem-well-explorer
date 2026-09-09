@@ -18,7 +18,7 @@
       <div class="title-card">
         <p class="eyebrow">CalGEM WellSTAR public GIS data</p>
         <h1>California Well Explorer</h1>
-        <p class="subtitle">Search wells, filter by status, and understand the wells in the area you are viewing.</p>
+        <p class="subtitle">Search wells, filter by status, and inspect core well information without fighting the map.</p>
       </div>
 
       <div id="data-state" class="data-state" aria-live="polite">
@@ -26,37 +26,6 @@
         <span id="data-state-text">Loading well layer…</span>
       </div>
     </header>
-
-    <section class="visible-summary" aria-label="Summary of wells currently visible on the map">
-      <div class="visible-summary-header">
-        <div>
-          <p class="summary-eyebrow">Visible map area</p>
-          <h2 id="visible-total">— wells</h2>
-        </div>
-        <span id="visible-summary-state" class="visible-summary-state">Calculating…</span>
-      </div>
-
-      <div class="summary-grid">
-        <div class="summary-metric summary-active">
-          <span class="summary-label">Active</span>
-          <strong id="visible-active">—</strong>
-        </div>
-        <div class="summary-metric summary-idle">
-          <span class="summary-label">Idle</span>
-          <strong id="visible-idle">—</strong>
-        </div>
-        <div class="summary-metric summary-plugged">
-          <span class="summary-label">Plugged</span>
-          <strong id="visible-plugged">—</strong>
-        </div>
-        <div class="summary-metric summary-other">
-          <span class="summary-label">Other</span>
-          <strong id="visible-other">—</strong>
-        </div>
-      </div>
-
-      <p class="summary-note">Updates after you pan, zoom, or change status filters.</p>
-    </section>
 
     <section class="control-card" aria-label="Well search and status filters">
       <div class="control-section search-section">
