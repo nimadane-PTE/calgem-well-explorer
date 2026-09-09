@@ -10,8 +10,24 @@ const [Map, MapView, FeatureLayer, Home, ScaleBar, reactiveUtils] = await $arcgi
 const WELL_LAYER_URL =
   "https://gis.conservation.ca.gov/server/rest/services/WellSTAR/Wells/MapServer/0";
 
+const WELL_FIELDS = [
+  "API",
+  "LeaseName",
+  "WellNumber",
+  "WellDesignation",
+  "WellStatus",
+  "WellTypeLabel",
+  "OperatorName",
+  "FieldName",
+  "CountyName",
+  "SpudDate",
+  "Latitude",
+  "Longitude"
+];
+
 const KNOWN_STATUS_VALUES = ["Active", "Idle", "New", "Plugged", "PluggedOnly", "Canceled"];
 const ALL_STATUS_CATEGORIES = ["Active", "Idle", "Permitted", "Plugged", "Canceled", "Other"];
+const CLUSTER_MAX_SCALE = 30000;
 
 const dataState = document.getElementById("data-state");
 const dataStateText = document.getElementById("data-state-text");
@@ -27,6 +43,7 @@ const clearSearchButton = document.getElementById("clear-search");
 const selectedStatuses = new Set(ALL_STATUS_CATEGORIES);
 let searchTimer = null;
 let searchRequestId = 0;
+let lastZoomMode = null;
 
 function simpleMarker(style, color, size = 10) {
   return {
@@ -35,8 +52,8 @@ function simpleMarker(style, color, size = 10) {
     size,
     color,
     outline: {
-      color: [255, 255, 255, 0.95],
-      width: 1.2
+      color: [255, 255, 255, 0.96],
+      width: 1.1
     }
   };
 }
@@ -50,29 +67,20 @@ function safeText(value, fallback = "—") {
   return text || fallback;
 }
 
-const statusExpression = `
-  var s = Upper(DefaultValue($feature.WellStatus, ''));
-  return When(
-    s == 'ACTIVE', 'Active',
-    s == 'IDLE', 'Idle',
-    s == 'NEW', 'Permitted',
-    Find('PLUGGED', s) > -1, 'Plugged',
-    Find('CANCEL', s) > -1, 'Canceled',
-    'Other'
-  );
-`;
-
+// Use the WellStatus field directly instead of evaluating an Arcade expression
+// for every visible feature. This is lighter and preserves all unknown statuses
+// through the renderer's default symbol.
 const statusRenderer = {
   type: "unique-value",
-  valueExpression: statusExpression,
-  valueExpressionTitle: "Well status",
+  field: "WellStatus",
   defaultSymbol: simpleMarker("circle", [75, 85, 99, 0.9], 9),
   defaultLabel: "Unknown / other",
   uniqueValueInfos: [
-    { value: "Active", label: "Active", symbol: simpleMarker("circle", [33, 150, 83, 0.95], 10) },
-    { value: "Idle", label: "Idle", symbol: simpleMarker("diamond", [245, 158, 11, 0.95], 11) },
-    { value: "Permitted", label: "Permitted", symbol: simpleMarker("triangle", [37, 99, 235, 0.95], 11) },
-    { value: "Plugged", label: "Plugged", symbol: simpleMarker("square", [107, 114, 128, 0.92], 9) },
+    { value: "Active", label: "Active", symbol: simpleMarker("circle", [33, 150, 83, 0.96], 10) },
+    { value: "Idle", label: "Idle", symbol: simpleMarker("diamond", [245, 158, 11, 0.96], 11) },
+    { value: "New", label: "Permitted", symbol: simpleMarker("triangle", [37, 99, 235, 0.96], 11) },
+    { value: "Plugged", label: "Plugged", symbol: simpleMarker("square", [107, 114, 128, 0.94], 9) },
+    { value: "PluggedOnly", label: "Plugged", symbol: simpleMarker("square", [107, 114, 128, 0.94], 9) },
     { value: "Canceled", label: "Canceled", symbol: simpleMarker("x", [220, 38, 38, 1], 10) }
   ]
 };
@@ -95,32 +103,22 @@ const wellPopup = {
       ]
     }
   ],
-  outFields: [
-    "API",
-    "LeaseName",
-    "WellNumber",
-    "WellDesignation",
-    "WellStatus",
-    "WellTypeLabel",
-    "OperatorName",
-    "FieldName",
-    "CountyName",
-    "SpudDate",
-    "Latitude",
-    "Longitude"
-  ]
+  outFields: WELL_FIELDS
 };
 
+// Let ArcGIS manage the transition between clustered and individual wells using
+// maxScale. We no longer replace featureReduction repeatedly while the user zooms.
 const clusterConfig = {
   type: "cluster",
-  clusterRadius: "64px",
-  clusterMinSize: "22px",
-  clusterMaxSize: "44px",
+  maxScale: CLUSTER_MAX_SCALE,
+  clusterRadius: "46px",
+  clusterMinSize: "20px",
+  clusterMaxSize: "40px",
   symbol: {
     type: "simple-marker",
     style: "circle",
-    color: [27, 43, 63, 0.86],
-    outline: { color: [255, 255, 255, 0.92], width: 1.5 }
+    color: [35, 49, 66, 0.86],
+    outline: { color: [255, 255, 255, 0.96], width: 1.4 }
   },
   labelingInfo: [
     {
@@ -136,42 +134,34 @@ const clusterConfig = {
     }
   ],
   popupTemplate: {
-    title: "{cluster_count} wells in this area",
-    content: "Zoom in to separate the cluster and inspect individual wells."
+    title: "{cluster_count} wells at this map scale",
+    content: "Zoom in to separate nearby wells. Clustering also prevents dense well locations from appearing to disappear behind one another."
   }
 };
 
 const wells = new FeatureLayer({
   url: WELL_LAYER_URL,
   title: "CalGEM WellSTAR Wells",
-  outFields: ["*"],
+  outFields: WELL_FIELDS,
   renderer: statusRenderer,
   popupTemplate: wellPopup,
   featureReduction: clusterConfig,
-  minScale: 0
+  minScale: 0,
+  labelsVisible: false
 });
 
+// A separate query-only layer keeps search independent from the visible status filters.
 const searchLayer = new FeatureLayer({
   url: WELL_LAYER_URL,
-  outFields: [
-    "API",
-    "LeaseName",
-    "WellNumber",
-    "WellDesignation",
-    "WellStatus",
-    "WellTypeLabel",
-    "OperatorName",
-    "FieldName",
-    "CountyName",
-    "SpudDate",
-    "Latitude",
-    "Longitude"
-  ],
-  popupTemplate: wellPopup
+  outFields: WELL_FIELDS,
+  popupTemplate: wellPopup,
+  labelsVisible: false
 });
 
 const map = new Map({
-  basemap: "osm",
+  // A quiet basemap gives wells visual priority while retaining roads, cities,
+  // county context, and other orientation cues.
+  basemap: "arcgis/light-gray",
   layers: [wells]
 });
 
@@ -179,11 +169,11 @@ const view = new MapView({
   container: "viewDiv",
   map,
   center: [-119.45, 36.65],
-  zoom: 5.6,
+  zoom: 5.8,
   constraints: {
     minZoom: 4,
     maxZoom: 20,
-    snapToZoom: false
+    snapToZoom: true
   },
   popup: {
     dockEnabled: false,
@@ -327,8 +317,8 @@ function renderSearchResults(features) {
 
       try {
         await view.goTo(
-          { target: feature.geometry, zoom: 15 },
-          { duration: 850, easing: "ease-in-out" }
+          { target: feature.geometry, zoom: 16 },
+          { duration: 500, easing: "ease-out" }
         );
 
         feature.popupTemplate = wellPopup;
@@ -360,7 +350,7 @@ async function runSearch(rawTerm) {
 
   const query = searchLayer.createQuery();
   query.where = searchWhere(term);
-  query.outFields = searchLayer.outFields;
+  query.outFields = WELL_FIELDS;
   query.returnGeometry = true;
   query.num = 10;
   query.orderByFields = ["API ASC"];
@@ -379,7 +369,7 @@ async function runSearch(rawTerm) {
 searchInput.addEventListener("input", () => {
   clearSearchButton.hidden = searchInput.value.length === 0;
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => runSearch(searchInput.value), 280);
+  searchTimer = setTimeout(() => runSearch(searchInput.value), 300);
 });
 
 searchInput.addEventListener("keydown", (event) => {
@@ -401,15 +391,18 @@ document.addEventListener("pointerdown", (event) => {
   if (!event.target.closest(".search-section")) hideSearchResults();
 });
 
+// This watcher now changes only explanatory text. It never changes the layer,
+// so mouse-wheel zooming does not trigger repeated cluster reconfiguration.
 reactiveUtils.watch(
   () => view.scale,
   (scale) => {
-    const regionalMode = scale > 150000;
-    wells.featureReduction = regionalMode ? clusterConfig : null;
+    const mode = scale > CLUSTER_MAX_SCALE ? "regional" : "individual";
+    if (mode === lastZoomMode) return;
+    lastZoomMode = mode;
 
-    if (regionalMode) {
+    if (mode === "regional") {
       zoomModeTitle.textContent = "Regional view";
-      zoomModeCopy.textContent = "Nearby wells are clustered for faster navigation. Zoom in for individual wells.";
+      zoomModeCopy.textContent = "Nearby or coincident wells are clustered for speed and completeness. Zoom closer for individual well symbols.";
     } else {
       zoomModeTitle.textContent = "Individual-well view";
       zoomModeCopy.textContent = "Status symbols now represent individual wells. Click a symbol to see well details.";
@@ -441,5 +434,5 @@ try {
 } catch (error) {
   console.error("Could not load the CalGEM WellSTAR layer:", error);
   dataState.classList.add("error");
-  dataStateText.textContent = "Could not load WellSTAR data";
+  dataStateText.textContent = "WellSTAR layer unavailable";
 }
