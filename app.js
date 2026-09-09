@@ -25,24 +25,25 @@ const ALL_STATUS_CATEGORIES = ["Active", "Idle", "Permitted", "Plugged", "Cancel
 const CLUSTER_MAX_SCALE = 30000;
 const REST_CHUNK_SIZE = 1000;
 
-const dataState = document.getElementById("data-state");
-const dataStateText = document.getElementById("data-state-text");
-const zoomModeTitle = document.getElementById("zoom-mode-title");
-const zoomModeCopy = document.getElementById("zoom-mode-copy");
-const statusFilterContainer = document.getElementById("status-filters");
-const filterSummary = document.getElementById("filter-summary");
-const resetFiltersButton = document.getElementById("reset-filters");
-const searchInput = document.getElementById("well-search");
-const searchResults = document.getElementById("search-results");
-const clearSearchButton = document.getElementById("clear-search");
-const operatorInput = document.getElementById("operator-filter");
-const operatorResults = document.getElementById("operator-results");
-const operatorSummary = document.getElementById("operator-summary");
-const clearOperatorButton = document.getElementById("clear-operator");
-const commandForm = document.getElementById("command-form");
-const commandInput = document.getElementById("command-input");
-const commandSubmit = document.getElementById("command-submit");
-const commandResponse = document.getElementById("command-response");
+const el = (id) => document.getElementById(id);
+const dataState = el("data-state");
+const dataStateText = el("data-state-text");
+const zoomModeTitle = el("zoom-mode-title");
+const zoomModeCopy = el("zoom-mode-copy");
+const statusFilterContainer = el("status-filters");
+const filterSummary = el("filter-summary");
+const resetFiltersButton = el("reset-filters");
+const searchInput = el("well-search");
+const searchResults = el("search-results");
+const clearSearchButton = el("clear-search");
+const operatorInput = el("operator-filter");
+const operatorResults = el("operator-results");
+const operatorSummary = el("operator-summary");
+const clearOperatorButton = el("clear-operator");
+const commandForm = el("command-form");
+const commandInput = el("command-input");
+const commandSubmit = el("command-submit");
+const commandResponse = el("command-response");
 
 const selectedStatuses = new Set(ALL_STATUS_CATEGORIES);
 let selectedOperator = null;
@@ -55,6 +56,19 @@ let lastZoomMode = null;
 let wellsLayerView = null;
 let selectionHandle = null;
 let selectionGraphic = null;
+
+function normalize(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+function escapeSql(value) {
+  return String(value).replaceAll("'", "''");
+}
+
+function safeText(value, fallback = "—") {
+  const text = value == null ? "" : String(value).trim();
+  return text || fallback;
+}
 
 function roundMarker(color, size = 10, outlineColor = [255, 255, 255, 0.98], outlineWidth = 1.4) {
   return {
@@ -73,19 +87,6 @@ function symbolForStatus(status) {
   if (status === "Plugged" || status === "PluggedOnly") return roundMarker([107, 114, 128, 0.96], 9);
   if (status === "Canceled") return roundMarker([220, 38, 38, 0.98], 9);
   return roundMarker([75, 85, 99, 0.92], 9);
-}
-
-function escapeSql(value) {
-  return String(value).replaceAll("'", "''");
-}
-
-function safeText(value, fallback = "—") {
-  const text = value == null ? "" : String(value).trim();
-  return text || fallback;
-}
-
-function normalize(value) {
-  return String(value || "").trim().replace(/\s+/g, " ").toUpperCase();
 }
 
 const statusRenderer = {
@@ -186,11 +187,7 @@ const streetBasemap = new Basemap({
   })]
 });
 
-const map = new Map({
-  basemap: streetBasemap,
-  layers: [wells, commandResultsLayer]
-});
-
+const map = new Map({ basemap: streetBasemap, layers: [wells, commandResultsLayer] });
 const view = new MapView({
   container: "viewDiv",
   map,
@@ -219,12 +216,10 @@ function buildStatusExpression(statuses = selectedStatuses) {
   if (statuses.has("Permitted")) clauses.push("WellStatus = 'New'");
   if (statuses.has("Plugged")) clauses.push("WellStatus IN ('Plugged', 'PluggedOnly')");
   if (statuses.has("Canceled")) clauses.push("WellStatus = 'Canceled'");
-
   if (statuses.has("Other")) {
     const known = KNOWN_STATUS_VALUES.map((status) => `'${status}'`).join(", ");
     clauses.push(`(WellStatus IS NULL OR WellStatus NOT IN (${known}))`);
   }
-
   return clauses.length ? `(${clauses.join(" OR ")})` : "1=0";
 }
 
@@ -238,7 +233,6 @@ function buildWhere(operator, location, statuses) {
 function setStatusSelection(statuses) {
   selectedStatuses.clear();
   statuses.forEach((status) => selectedStatuses.add(status));
-
   statusFilterContainer.querySelectorAll(".status-chip").forEach((button) => {
     button.setAttribute("aria-pressed", String(selectedStatuses.has(button.dataset.status)));
   });
@@ -246,11 +240,9 @@ function setStatusSelection(statuses) {
 
 function updateFilterSummary() {
   const parts = [];
-
   if (selectedStatuses.size === ALL_STATUS_CATEGORIES.length) parts.push("All well statuses");
   else if (selectedStatuses.size === 0) parts.push("No statuses selected");
   else parts.push(`${selectedStatuses.size} of ${ALL_STATUS_CATEGORIES.length} status groups`);
-
   if (selectedOperator) parts.push(selectedOperator.label);
   if (selectedLocation) parts.push(`${selectedLocation.kind}: ${selectedLocation.label}`);
   filterSummary.textContent = parts.join(" · ");
@@ -259,7 +251,6 @@ function updateFilterSummary() {
 function clearSelection() {
   selectionHandle?.remove();
   selectionHandle = null;
-
   if (selectionGraphic) {
     view.graphics.remove(selectionGraphic);
     selectionGraphic = null;
@@ -270,20 +261,16 @@ function resetDisplayForNewCommand() {
   selectedOperator = null;
   selectedLocation = null;
   setStatusSelection(ALL_STATUS_CATEGORIES);
-
   operatorInput.value = "";
   operatorSummary.textContent = "All operators";
   operatorSummary.classList.remove("is-filtered");
   clearOperatorButton.hidden = true;
-
   clearSelection();
   commandResultsLayer.removeAll();
   commandResultsLayer.visible = false;
-
   wells.visible = true;
   wells.definitionExpression = "1=1";
   wells.featureReduction = clusterConfig;
-
   updateFilterSummary();
 }
 
@@ -304,14 +291,10 @@ function applyManualFilters() {
 statusFilterContainer.addEventListener("click", (event) => {
   const button = event.target.closest(".status-chip");
   if (!button) return;
-
   const status = button.dataset.status;
   const enabled = button.getAttribute("aria-pressed") !== "true";
   button.setAttribute("aria-pressed", String(enabled));
-
-  if (enabled) selectedStatuses.add(status);
-  else selectedStatuses.delete(status);
-
+  if (enabled) selectedStatuses.add(status); else selectedStatuses.delete(status);
   applyManualFilters();
 });
 
@@ -343,16 +326,13 @@ function searchWhere(term) {
 function resultLabel(attributes) {
   const designation = safeText(attributes.WellDesignation, "");
   if (designation) return designation;
-
   const lease = safeText(attributes.LeaseName, "Unnamed lease");
   return attributes.WellNumber ? `${lease} — ${attributes.WellNumber}` : lease;
 }
 
 function renderSearchResults(features) {
   if (!features.length) return showSearchMessage("No matching wells found.");
-
   const fragment = document.createDocumentFragment();
-
   features.forEach((feature) => {
     const a = feature.attributes;
     const button = document.createElement("button");
@@ -362,19 +342,15 @@ function renderSearchResults(features) {
 
     const top = document.createElement("div");
     top.className = "result-top";
-
     const name = document.createElement("span");
     name.className = "result-name";
     name.textContent = resultLabel(a);
-
     const status = document.createElement("span");
     status.className = "result-status";
     status.textContent = safeText(a.WellStatus, "Unknown");
-
     const meta = document.createElement("div");
     meta.className = "result-meta";
     meta.textContent = `API ${safeText(a.API)} · ${safeText(a.OperatorName)} · ${safeText(a.FieldName)}`;
-
     top.append(name, status);
     button.append(top, meta);
 
@@ -386,10 +362,8 @@ function renderSearchResults(features) {
       feature.popupTemplate = wellPopup;
       view.openPopup({ features: [feature], location: feature.geometry });
     });
-
     fragment.append(button);
   });
-
   searchResults.replaceChildren(fragment);
   searchResults.hidden = false;
 }
@@ -397,17 +371,14 @@ function renderSearchResults(features) {
 async function runSearch(rawTerm) {
   const term = rawTerm.trim();
   if (term.length < 2) return hideSearchResults();
-
   const requestId = ++searchRequestId;
   showSearchMessage("Searching WellSTAR…");
-
   const query = queryLayer.createQuery();
   query.where = searchWhere(term);
   query.outFields = WELL_FIELDS;
   query.returnGeometry = true;
   query.num = 10;
   query.orderByFields = ["API ASC"];
-
   try {
     const response = await queryLayer.queryFeatures(query);
     if (requestId === searchRequestId) renderSearchResults(response.features.slice(0, 10));
@@ -421,14 +392,12 @@ searchInput.addEventListener("input", () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => runSearch(searchInput.value), 300);
 });
-
 searchInput.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     hideSearchResults();
     searchInput.blur();
   }
 });
-
 clearSearchButton.addEventListener("click", () => {
   searchInput.value = "";
   clearSearchButton.hidden = true;
@@ -451,10 +420,7 @@ function showOperatorMessage(message) {
 }
 
 function operatorFilterContains(term, label = term) {
-  return {
-    label,
-    where: `UPPER(OperatorName) LIKE '%${escapeSql(normalize(term))}%'`
-  };
+  return { label, where: `UPPER(OperatorName) LIKE '%${escapeSql(normalize(term))}%'` };
 }
 
 function setOperatorExact(name) {
@@ -480,7 +446,6 @@ function clearOperator() {
 
 function renderOperatorResults(names) {
   if (!names.length) return showOperatorMessage("No matching operators found.");
-
   const fragment = document.createDocumentFragment();
   names.forEach((name) => {
     const button = document.createElement("button");
@@ -490,7 +455,6 @@ function renderOperatorResults(names) {
     button.addEventListener("click", () => setOperatorExact(name));
     fragment.append(button);
   });
-
   operatorResults.replaceChildren(fragment);
   operatorResults.hidden = false;
 }
@@ -498,10 +462,8 @@ function renderOperatorResults(names) {
 async function runOperatorSearch(rawTerm) {
   const term = rawTerm.trim();
   if (term.length < 2) return hideOperatorResults();
-
   const requestId = ++operatorRequestId;
   showOperatorMessage("Finding operators…");
-
   const query = queryLayer.createQuery();
   query.where = `UPPER(OperatorName) LIKE '%${escapeSql(normalize(term))}%'`;
   query.outFields = ["OperatorName"];
@@ -509,15 +471,10 @@ async function runOperatorSearch(rawTerm) {
   query.returnDistinctValues = true;
   query.orderByFields = ["OperatorName ASC"];
   query.num = 20;
-
   try {
     const response = await queryLayer.queryFeatures(query);
     if (requestId !== operatorRequestId) return;
-
-    const names = [...new Set(
-      response.features.map((feature) => safeText(feature.attributes.OperatorName, "")).filter(Boolean)
-    )].slice(0, 20);
-
+    const names = [...new Set(response.features.map((feature) => safeText(feature.attributes.OperatorName, "")).filter(Boolean))].slice(0, 20);
     renderOperatorResults(names);
   } catch (error) {
     if (requestId === operatorRequestId) showOperatorMessage("Operator lookup failed. Try again.");
@@ -532,153 +489,21 @@ operatorInput.addEventListener("input", () => {
     clearOperatorButton.hidden = true;
     applyManualFilters();
   }
-
   clearTimeout(operatorTimer);
   operatorTimer = setTimeout(() => runOperatorSearch(operatorInput.value), 250);
 });
-
 operatorInput.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     hideOperatorResults();
     operatorInput.blur();
   }
 });
-
 clearOperatorButton.addEventListener("click", clearOperator);
 
 document.addEventListener("pointerdown", (event) => {
   if (!event.target.closest(".search-section")) hideSearchResults();
   if (!event.target.closest(".operator-section")) hideOperatorResults();
 });
-
-async function findMatchingWellAttribute(field, rawValue) {
-  const wanted = normalize(rawValue);
-
-  const exactQuery = queryLayer.createQuery();
-  exactQuery.where = `UPPER(${field}) = '${escapeSql(wanted)}'`;
-  exactQuery.outFields = [field];
-  exactQuery.returnGeometry = false;
-  exactQuery.returnDistinctValues = true;
-  exactQuery.num = 20;
-
-  const exactResponse = await queryLayer.queryFeatures(exactQuery);
-  const exact = exactResponse.features
-    .map((feature) => safeText(feature.attributes[field], ""))
-    .find(Boolean);
-  if (exact) return exact;
-
-  const containsQuery = queryLayer.createQuery();
-  containsQuery.where = `UPPER(${field}) LIKE '%${escapeSql(wanted)}%'`;
-  containsQuery.outFields = [field];
-  containsQuery.returnGeometry = false;
-  containsQuery.returnDistinctValues = true;
-  containsQuery.orderByFields = [`${field} ASC`];
-  containsQuery.num = 50;
-
-  const containsResponse = await queryLayer.queryFeatures(containsQuery);
-  const names = [...new Set(
-    containsResponse.features.map((feature) => safeText(feature.attributes[field], "")).filter(Boolean)
-  )];
-
-  if (!names.length) return null;
-  return names.sort((a, b) => a.length - b.length || a.localeCompare(b))[0];
-}
-
-async function resolveCity(rawValue) {
-  const query = cityLayer.createQuery();
-  query.where = `UPPER(CITY) = '${escapeSql(normalize(rawValue))}'`;
-  query.outFields = ["CITY", "COUNTY"];
-  query.returnGeometry = true;
-  query.num = 100;
-
-  const response = await cityLayer.queryFeatures(query);
-  if (!response.features.length) return null;
-
-  const cityName = safeText(response.features[0].attributes.CITY, rawValue);
-  const counties = [...new Set(
-    response.features.map((feature) => safeText(feature.attributes.COUNTY, "")).filter(Boolean)
-  )];
-
-  return {
-    kind: "California city",
-    label: counties.length ? `${cityName} (${counties.join(" / ")} County)` : cityName,
-    geometries: response.features.map((feature) => feature.geometry).filter(Boolean),
-    where: null
-  };
-}
-
-async function resolveLocation(rawLocation) {
-  const text = rawLocation.trim().replace(/[.,]+$/, "");
-  const lower = text.toLowerCase();
-
-  const explicitRules = [
-    { word: "field", field: "FieldName", kind: "CalGEM field" },
-    { word: "district", field: "District", kind: "CalGEM district" },
-    { word: "county", field: "CountyName", kind: "County" },
-    { word: "area", field: "AreaName", kind: "CalGEM area" },
-    { word: "place", field: "Place", kind: "CalGEM place" }
-  ];
-
-  for (const rule of explicitRules) {
-    if (lower.endsWith(` ${rule.word}`)) {
-      const name = text.slice(0, -(rule.word.length + 1)).trim();
-      const match = await findMatchingWellAttribute(rule.field, name);
-      return match
-        ? { kind: rule.kind, label: match, where: `${rule.field} = '${escapeSql(match)}'`, geometries: null }
-        : null;
-    }
-  }
-
-  if (lower.endsWith(" city")) {
-    return resolveCity(text.slice(0, -5).trim());
-  }
-
-  const city = await resolveCity(text);
-  if (city) return city;
-
-  const exactPlace = await findMatchingWellAttribute("Place", text);
-  if (exactPlace) {
-    return { kind: "CalGEM place", label: exactPlace, where: `Place = '${escapeSql(exactPlace)}'`, geometries: null };
-  }
-
-  for (const rule of [
-    { field: "FieldName", kind: "CalGEM field" },
-    { field: "AreaName", kind: "CalGEM area" },
-    { field: "CountyName", kind: "County" },
-    { field: "District", kind: "CalGEM district" }
-  ]) {
-    const match = await findMatchingWellAttribute(rule.field, text);
-    if (match) {
-      return { kind: rule.kind, label: match, where: `${rule.field} = '${escapeSql(match)}'`, geometries: null };
-    }
-  }
-
-  return null;
-}
-
-function parseCommand(text) {
-  const clean = text.trim().replace(/\s+/g, " ");
-  const lower = clean.toLowerCase();
-
-  if (/^(show|display|map)?\s*(me\s*)?(all\s+)?wells\s*$/.test(lower) || lower === "reset map") {
-    return { reset: true };
-  }
-
-  let status = null;
-  if (/\bidle\b/.test(lower)) status = "Idle";
-  else if (/\bactive\b/.test(lower)) status = "Active";
-  else if (/\b(plugged|abandoned)\b/.test(lower)) status = "Plugged";
-  else if (/\b(permitted|new)\b/.test(lower)) status = "Permitted";
-  else if (/\bcanceled\b/.test(lower)) status = "Canceled";
-
-  const operatorMatch = clean.match(/operated\s+by\s+(.+?)(?=\s+in\s+|$)/i);
-  const operator = operatorMatch ? operatorMatch[1].trim() : null;
-
-  const locationMatch = clean.match(/\s+in\s+(.+)$/i);
-  const location = locationMatch ? locationMatch[1].trim() : null;
-
-  return { reset: false, status, operator, location };
-}
 
 async function postWellStarQuery(params) {
   const body = new URLSearchParams();
@@ -693,31 +518,142 @@ async function postWellStarQuery(params) {
     body: body.toString()
   });
 
-  if (!response.ok) {
-    throw new Error(`WellSTAR REST request failed with HTTP ${response.status}.`);
-  }
-
+  if (!response.ok) throw new Error(`WellSTAR REST request failed with HTTP ${response.status}.`);
   const json = await response.json();
   if (json.error) {
     const details = Array.isArray(json.error.details) ? json.error.details.join(" ") : "";
     throw new Error(`${json.error.message || "WellSTAR REST error"}${details ? ` — ${details}` : ""}`);
   }
-
   return json;
 }
 
-async function getObjectIdsViaRest(where) {
-  const json = await postWellStarQuery({
-    where,
-    returnIdsOnly: "true"
+function distinctAttributeValues(json, field) {
+  return [...new Set((json.features || []).map((feature) => safeText(feature.attributes?.[field], "")).filter(Boolean))];
+}
+
+async function findMatchingAttributeViaRest(field, rawValue) {
+  const wanted = normalize(rawValue);
+
+  const exactJson = await postWellStarQuery({
+    where: `UPPER(${field}) = '${escapeSql(wanted)}'`,
+    outFields: field,
+    returnGeometry: "false",
+    resultRecordCount: 100
   });
+  const exactValues = distinctAttributeValues(exactJson, field);
+  if (exactValues.length) return exactValues[0];
+
+  const containsJson = await postWellStarQuery({
+    where: `UPPER(${field}) LIKE '%${escapeSql(wanted)}%'`,
+    outFields: field,
+    returnGeometry: "false",
+    resultRecordCount: 500
+  });
+  const values = distinctAttributeValues(containsJson, field);
+  if (!values.length) return null;
+
+  const normalizedExact = values.find((value) => normalize(value) === wanted);
+  if (normalizedExact) return normalizedExact;
+  return values.sort((a, b) => a.length - b.length || a.localeCompare(b))[0];
+}
+
+async function resolveCity(rawValue) {
+  const query = cityLayer.createQuery();
+  query.where = `UPPER(CITY) = '${escapeSql(normalize(rawValue))}'`;
+  query.outFields = ["CITY", "COUNTY"];
+  query.returnGeometry = true;
+  query.num = 100;
+  const response = await cityLayer.queryFeatures(query);
+  if (!response.features.length) return null;
+
+  const cityName = safeText(response.features[0].attributes.CITY, rawValue);
+  const counties = [...new Set(response.features.map((feature) => safeText(feature.attributes.COUNTY, "")).filter(Boolean))];
+  return {
+    kind: "California city",
+    label: counties.length ? `${cityName} (${counties.join(" / ")} County)` : cityName,
+    geometries: response.features.map((feature) => feature.geometry).filter(Boolean),
+    where: null
+  };
+}
+
+async function resolveAttributeLocation(field, rawValue, kind) {
+  const match = await findMatchingAttributeViaRest(field, rawValue);
+  if (!match) return null;
+  return {
+    kind,
+    label: match,
+    where: `${field} = '${escapeSql(match)}'`,
+    geometries: null
+  };
+}
+
+async function resolveLocation(rawLocation) {
+  const text = rawLocation.trim().replace(/[.,]+$/, "");
+  const lower = text.toLowerCase();
+  const explicitRules = [
+    { word: "field", field: "FieldName", kind: "CalGEM field" },
+    { word: "district", field: "District", kind: "CalGEM district" },
+    { word: "county", field: "CountyName", kind: "County" },
+    { word: "area", field: "AreaName", kind: "CalGEM area" },
+    { word: "place", field: "Place", kind: "CalGEM place" }
+  ];
+
+  for (const rule of explicitRules) {
+    if (lower.endsWith(` ${rule.word}`)) {
+      const name = text.slice(0, -(rule.word.length + 1)).trim();
+      return resolveAttributeLocation(rule.field, name, rule.kind);
+    }
+  }
+
+  if (lower.endsWith(" city")) return resolveCity(text.slice(0, -5).trim());
+
+  const city = await resolveCity(text);
+  if (city) return city;
+
+  for (const rule of [
+    { field: "Place", kind: "CalGEM place" },
+    { field: "FieldName", kind: "CalGEM field" },
+    { field: "AreaName", kind: "CalGEM area" },
+    { field: "CountyName", kind: "County" },
+    { field: "District", kind: "CalGEM district" }
+  ]) {
+    const match = await resolveAttributeLocation(rule.field, text, rule.kind);
+    if (match) return match;
+  }
+
+  return null;
+}
+
+function parseCommand(text) {
+  const clean = text.trim().replace(/\s+/g, " ");
+  const lower = clean.toLowerCase();
+  if (/^(show|display|map)?\s*(me\s*)?(all\s+)?wells\s*$/.test(lower) || lower === "reset map") return { reset: true };
+
+  let status = null;
+  if (/\bidle\b/.test(lower)) status = "Idle";
+  else if (/\bactive\b/.test(lower)) status = "Active";
+  else if (/\b(plugged|abandoned)\b/.test(lower)) status = "Plugged";
+  else if (/\b(permitted|new)\b/.test(lower)) status = "Permitted";
+  else if (/\bcanceled\b/.test(lower)) status = "Canceled";
+
+  const operatorMatch = clean.match(/operated\s+by\s+(.+?)(?=\s+in\s+|$)/i);
+  const locationMatch = clean.match(/\s+in\s+(.+)$/i);
+  return {
+    reset: false,
+    status,
+    operator: operatorMatch ? operatorMatch[1].trim() : null,
+    location: locationMatch ? locationMatch[1].trim() : null
+  };
+}
+
+async function getObjectIdsViaRest(where) {
+  const json = await postWellStarQuery({ where, returnIdsOnly: "true" });
   return Array.isArray(json.objectIds) ? json.objectIds : [];
 }
 
 async function getSpatialObjectIdsViaRest(where, geometry) {
   const geometryJson = geometry.toJSON ? geometry.toJSON() : geometry;
   const wkid = geometry.spatialReference?.wkid || geometry.spatialReference?.latestWkid || 3857;
-
   const json = await postWellStarQuery({
     where,
     geometry: JSON.stringify(geometryJson),
@@ -726,13 +662,11 @@ async function getSpatialObjectIdsViaRest(where, geometry) {
     spatialRel: "esriSpatialRelIntersects",
     returnIdsOnly: "true"
   });
-
   return Array.isArray(json.objectIds) ? json.objectIds : [];
 }
 
 async function getWellGraphicsByObjectIds(objectIds) {
   const graphics = [];
-
   for (let start = 0; start < objectIds.length; start += REST_CHUNK_SIZE) {
     const chunk = objectIds.slice(start, start + REST_CHUNK_SIZE);
     const json = await postWellStarQuery({
@@ -743,32 +677,25 @@ async function getWellGraphicsByObjectIds(objectIds) {
     });
 
     for (const feature of json.features || []) {
-      const geometry = feature.geometry
-        ? {
-            type: "point",
-            x: feature.geometry.x,
-            y: feature.geometry.y,
-            spatialReference: { wkid: 3857 }
-          }
-        : null;
-
-      if (!geometry) continue;
-
+      if (!feature.geometry) continue;
       graphics.push(new Graphic({
-        geometry,
+        geometry: {
+          type: "point",
+          x: feature.geometry.x,
+          y: feature.geometry.y,
+          spatialReference: { wkid: 3857 }
+        },
         attributes: feature.attributes || {},
         symbol: symbolForStatus(feature.attributes?.WellStatus),
         popupTemplate: wellPopup
       }));
     }
   }
-
   return graphics;
 }
 
 async function queryLocationCommandGraphics(where, location) {
   const ids = new Set();
-
   if (location?.geometries?.length) {
     for (const geometry of location.geometries) {
       const geometryIds = await getSpatialObjectIdsViaRest(where, geometry);
@@ -778,7 +705,6 @@ async function queryLocationCommandGraphics(where, location) {
     const attributeIds = await getObjectIdsViaRest(where);
     attributeIds.forEach((id) => ids.add(id));
   }
-
   return getWellGraphicsByObjectIds([...ids]);
 }
 
@@ -787,12 +713,10 @@ async function queryAttributeCommandSummary(where) {
   countQuery.where = where;
   countQuery.returnGeometry = false;
   const count = await queryLayer.queryFeatureCount(countQuery);
-
   const extentQuery = queryLayer.createQuery();
   extentQuery.where = where;
   extentQuery.returnGeometry = true;
   const extentResult = await queryLayer.queryExtent(extentQuery);
-
   return { count, extent: extentResult.extent || null };
 }
 
@@ -800,7 +724,6 @@ function setControlsFromCommand(operator, location, statuses) {
   selectedOperator = operator;
   selectedLocation = location;
   setStatusSelection([...statuses]);
-
   if (operator) {
     operatorInput.value = operator.label;
     operatorSummary.textContent = `Filtering: ${operator.label}`;
@@ -812,7 +735,6 @@ function setControlsFromCommand(operator, location, statuses) {
     operatorSummary.classList.remove("is-filtered");
     clearOperatorButton.hidden = true;
   }
-
   updateFilterSummary();
 }
 
@@ -826,10 +748,7 @@ function renderExactCommandResults(graphics) {
 async function zoomToLocationResult(graphics, location) {
   if (graphics.length) {
     await view.goTo(graphics, { duration: 520, easing: "ease-out" });
-    return;
-  }
-
-  if (location?.geometries?.length) {
+  } else if (location?.geometries?.length) {
     await view.goTo(location.geometries, { duration: 520, easing: "ease-out" });
   }
 }
@@ -843,7 +762,6 @@ function resetMapFromCommand() {
 async function runMapCommand(rawText) {
   const parsed = parseCommand(rawText);
   if (parsed.reset) return resetMapFromCommand();
-
   if (!parsed.operator && !parsed.status && !parsed.location) {
     commandResponse.textContent = "I could not match that command. Try an operator, status, and/or California location.";
     return;
@@ -851,16 +769,13 @@ async function runMapCommand(rawText) {
 
   commandSubmit.disabled = true;
   let stage = "resetting the previous command";
-
   try {
     resetDisplayForNewCommand();
-
     const nextOperator = parsed.operator ? operatorFilterContains(parsed.operator, parsed.operator) : null;
     const nextStatuses = new Set(parsed.status ? [parsed.status] : ALL_STATUS_CATEGORIES);
 
     stage = "resolving the California location";
     const nextLocation = parsed.location ? await resolveLocation(parsed.location) : null;
-
     if (parsed.location && !nextLocation) {
       commandResponse.textContent = `I could not resolve “${parsed.location}”. Try “${parsed.location} city”, “${parsed.location} field”, “${parsed.location} county”, or “${parsed.location} district”.`;
       return;
@@ -871,7 +786,6 @@ async function runMapCommand(rawText) {
     if (nextLocation) {
       stage = `querying exact WellSTAR matches for ${nextLocation.kind}`;
       const graphics = await queryLocationCommandGraphics(where, nextLocation);
-
       stage = "drawing the exact location results";
       setControlsFromCommand(nextOperator, nextLocation, nextStatuses);
       renderExactCommandResults(graphics);
@@ -893,17 +807,13 @@ async function runMapCommand(rawText) {
 
     stage = "querying the WellSTAR attribute filters";
     const summary = await queryAttributeCommandSummary(where);
-
     stage = "applying the new command";
-    setControlsFromCommand(nextOperator, nextLocation, nextStatuses);
+    setControlsFromCommand(nextOperator, null, nextStatuses);
     wells.visible = true;
     wells.featureReduction = clusterConfig;
     wells.definitionExpression = where;
     clearSelection();
-
-    if (summary.extent) {
-      await view.goTo(summary.extent.expand(1.15), { duration: 500, easing: "ease-out" });
-    }
+    if (summary.extent) await view.goTo(summary.extent.expand(1.15), { duration: 500, easing: "ease-out" });
 
     const description = [
       parsed.status ? parsed.status.toLowerCase() : null,
@@ -938,9 +848,9 @@ document.querySelectorAll("[data-command]").forEach((button) => {
 view.on("pointer-move", async (event) => {
   try {
     const hit = await view.hitTest(event, { include: [wells, commandResultsLayer] });
-    view.container.style.cursor = hit.results.some((result) =>
-      result.graphic?.layer === wells || result.graphic?.layer === commandResultsLayer
-    ) ? "pointer" : "default";
+    view.container.style.cursor = hit.results.some((result) => result.graphic?.layer === wells || result.graphic?.layer === commandResultsLayer)
+      ? "pointer"
+      : "default";
   } catch (_) {}
 });
 
@@ -950,16 +860,12 @@ view.on("click", async (event) => {
     const result = hit.results.find((item) =>
       (item.graphic?.layer === wells && !item.graphic?.isAggregate) || item.graphic?.layer === commandResultsLayer
     );
-
     clearSelection();
     if (!result) return;
 
     if (result.graphic.layer === wells && wellsLayerView) {
       selectionHandle = wellsLayerView.highlight(result.graphic);
-      return;
-    }
-
-    if (result.graphic.layer === commandResultsLayer) {
+    } else if (result.graphic.layer === commandResultsLayer) {
       selectionGraphic = result.graphic.clone();
       selectionGraphic.popupTemplate = null;
       selectionGraphic.symbol = roundMarker([0, 122, 255, 0], 18, [0, 122, 255, 1], 3);
@@ -970,7 +876,7 @@ view.on("click", async (event) => {
 
 reactiveUtils.watch(() => view.scale, (scale) => {
   const mode = scale > CLUSTER_MAX_SCALE ? "regional" : "individual";
-  if (mode === lastZoomMode) return;
+  if (mode === lastZoomMode && !commandResultsLayer.visible) return;
   lastZoomMode = mode;
 
   if (commandResultsLayer.visible) {
