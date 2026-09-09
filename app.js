@@ -1,8 +1,9 @@
-const [Map, MapView, FeatureLayer, GraphicsLayer, Home, ScaleBar, reactiveUtils, Basemap, TileLayer] = await $arcgis.import([
+const [Map, MapView, FeatureLayer, GraphicsLayer, Graphic, Home, ScaleBar, reactiveUtils, Basemap, TileLayer] = await $arcgis.import([
   "@arcgis/core/Map.js",
   "@arcgis/core/views/MapView.js",
   "@arcgis/core/layers/FeatureLayer.js",
   "@arcgis/core/layers/GraphicsLayer.js",
+  "@arcgis/core/Graphic.js",
   "@arcgis/core/widgets/Home.js",
   "@arcgis/core/widgets/ScaleBar.js",
   "@arcgis/core/core/reactiveUtils.js",
@@ -22,7 +23,7 @@ const WELL_FIELDS = [
 const KNOWN_STATUS_VALUES = ["Active", "Idle", "New", "Plugged", "PluggedOnly", "Canceled"];
 const ALL_STATUS_CATEGORIES = ["Active", "Idle", "Permitted", "Plugged", "Canceled", "Other"];
 const CLUSTER_MAX_SCALE = 30000;
-const PAGE_SIZE = 5000;
+const REST_CHUNK_SIZE = 1000;
 
 const dataState = document.getElementById("data-state");
 const dataStateText = document.getElementById("data-state-text");
@@ -66,12 +67,11 @@ function roundMarker(color, size = 10, outlineColor = [255, 255, 255, 0.98], out
 }
 
 function symbolForStatus(status) {
-  const value = String(status || "");
-  if (value === "Active") return roundMarker([33, 150, 83, 0.98], 10);
-  if (value === "Idle") return roundMarker([245, 158, 11, 0.98], 10);
-  if (value === "New") return roundMarker([37, 99, 235, 0.98], 10);
-  if (value === "Plugged" || value === "PluggedOnly") return roundMarker([107, 114, 128, 0.96], 9);
-  if (value === "Canceled") return roundMarker([220, 38, 38, 0.98], 9);
+  if (status === "Active") return roundMarker([33, 150, 83, 0.98], 10);
+  if (status === "Idle") return roundMarker([245, 158, 11, 0.98], 10);
+  if (status === "New") return roundMarker([37, 99, 235, 0.98], 10);
+  if (status === "Plugged" || status === "PluggedOnly") return roundMarker([107, 114, 128, 0.96], 9);
+  if (status === "Canceled") return roundMarker([220, 38, 38, 0.98], 9);
   return roundMarker([75, 85, 99, 0.92], 9);
 }
 
@@ -221,7 +221,7 @@ function buildStatusExpression(statuses = selectedStatuses) {
   if (statuses.has("Canceled")) clauses.push("WellStatus = 'Canceled'");
 
   if (statuses.has("Other")) {
-    const known = KNOWN_STATUS_VALUES.map((s) => `'${s}'`).join(", ");
+    const known = KNOWN_STATUS_VALUES.map((status) => `'${status}'`).join(", ");
     clauses.push(`(WellStatus IS NULL OR WellStatus NOT IN (${known}))`);
   }
 
@@ -235,17 +235,6 @@ function buildWhere(operator, location, statuses) {
   return clauses.join(" AND ");
 }
 
-function updateFilterSummary() {
-  const parts = [];
-  if (selectedStatuses.size === ALL_STATUS_CATEGORIES.length) parts.push("All well statuses");
-  else if (selectedStatuses.size === 0) parts.push("No statuses selected");
-  else parts.push(`${selectedStatuses.size} of ${ALL_STATUS_CATEGORIES.length} status groups`);
-
-  if (selectedOperator) parts.push(selectedOperator.label);
-  if (selectedLocation) parts.push(`${selectedLocation.kind}: ${selectedLocation.label}`);
-  filterSummary.textContent = parts.join(" · ");
-}
-
 function setStatusSelection(statuses) {
   selectedStatuses.clear();
   statuses.forEach((status) => selectedStatuses.add(status));
@@ -253,6 +242,18 @@ function setStatusSelection(statuses) {
   statusFilterContainer.querySelectorAll(".status-chip").forEach((button) => {
     button.setAttribute("aria-pressed", String(selectedStatuses.has(button.dataset.status)));
   });
+}
+
+function updateFilterSummary() {
+  const parts = [];
+
+  if (selectedStatuses.size === ALL_STATUS_CATEGORIES.length) parts.push("All well statuses");
+  else if (selectedStatuses.size === 0) parts.push("No statuses selected");
+  else parts.push(`${selectedStatuses.size} of ${ALL_STATUS_CATEGORIES.length} status groups`);
+
+  if (selectedOperator) parts.push(selectedOperator.label);
+  if (selectedLocation) parts.push(`${selectedLocation.kind}: ${selectedLocation.label}`);
+  filterSummary.textContent = parts.join(" · ");
 }
 
 function clearSelection() {
@@ -265,7 +266,28 @@ function clearSelection() {
   }
 }
 
-function leaveCommandResultMode() {
+function resetDisplayForNewCommand() {
+  selectedOperator = null;
+  selectedLocation = null;
+  setStatusSelection(ALL_STATUS_CATEGORIES);
+
+  operatorInput.value = "";
+  operatorSummary.textContent = "All operators";
+  operatorSummary.classList.remove("is-filtered");
+  clearOperatorButton.hidden = true;
+
+  clearSelection();
+  commandResultsLayer.removeAll();
+  commandResultsLayer.visible = false;
+
+  wells.visible = true;
+  wells.definitionExpression = "1=1";
+  wells.featureReduction = clusterConfig;
+
+  updateFilterSummary();
+}
+
+function leaveCommandMode() {
   commandResultsLayer.removeAll();
   commandResultsLayer.visible = false;
   wells.visible = true;
@@ -274,7 +296,7 @@ function leaveCommandResultMode() {
 }
 
 function applyManualFilters() {
-  leaveCommandResultMode();
+  leaveCommandMode();
   wells.definitionExpression = buildWhere(selectedOperator, null, selectedStatuses);
   updateFilterSummary();
 }
@@ -552,7 +574,9 @@ async function resolveCity(rawValue) {
   if (!response.features.length) return null;
 
   const cityName = safeText(response.features[0].attributes.CITY, rawValue);
-  const counties = [...new Set(response.features.map((feature) => safeText(feature.attributes.COUNTY, "")).filter(Boolean))];
+  const counties = [...new Set(
+    response.features.map((feature) => safeText(feature.attributes.COUNTY, "")).filter(Boolean)
+  )];
 
   return {
     kind: "California city",
@@ -588,8 +612,6 @@ async function resolveLocation(rawLocation) {
     return resolveCity(text.slice(0, -5).trim());
   }
 
-  // Plain geographic names mean California cities first. Explicit words such
-  // as "field" or "district" override this behavior.
   const city = await resolveCity(text);
   if (city) return city;
 
@@ -637,57 +659,93 @@ function parseCommand(text) {
   return { reset: false, status, operator, location };
 }
 
-async function queryAllFeatures(where, geometry = null) {
-  const all = [];
-  const seen = new Set();
-  let start = 0;
+async function postWellStarQuery(params) {
+  const body = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null) body.set(key, String(value));
+  }
+  body.set("f", "json");
 
-  while (true) {
-    const query = queryLayer.createQuery();
-    query.where = where;
-    query.outFields = WELL_FIELDS;
-    query.returnGeometry = true;
-    query.start = start;
-    query.num = PAGE_SIZE;
-    query.orderByFields = ["OBJECTID ASC"];
+  const response = await fetch(`${WELL_LAYER_URL}/query`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+    body: body.toString()
+  });
 
-    if (geometry) {
-      query.geometry = geometry;
-      query.spatialRelationship = "intersects";
-    }
-
-    const response = await queryLayer.queryFeatures(query);
-
-    for (const feature of response.features) {
-      const objectId = feature.attributes.OBJECTID;
-      if (!seen.has(objectId)) {
-        seen.add(objectId);
-        all.push(feature);
-      }
-    }
-
-    const returned = response.features.length;
-    if (!response.exceededTransferLimit && returned < PAGE_SIZE) break;
-    if (returned === 0) break;
-
-    start += returned;
-    if (start > 100000) break;
+  if (!response.ok) {
+    throw new Error(`WellSTAR REST request failed with HTTP ${response.status}.`);
   }
 
-  return all;
+  const json = await response.json();
+  if (json.error) {
+    const details = Array.isArray(json.error.details) ? json.error.details.join(" ") : "";
+    throw new Error(`${json.error.message || "WellSTAR REST error"}${details ? ` — ${details}` : ""}`);
+  }
+
+  return json;
 }
 
-async function queryCityCommandFeatures(where, location) {
-  const byId = new Map();
+async function getSpatialObjectIdsViaRest(where, geometry) {
+  const geometryJson = geometry.toJSON ? geometry.toJSON() : geometry;
+  const wkid = geometry.spatialReference?.wkid || geometry.spatialReference?.latestWkid || 3857;
 
-  for (const geometry of location.geometries || []) {
-    const features = await queryAllFeatures(where, geometry);
-    for (const feature of features) {
-      byId.set(feature.attributes.OBJECTID, feature);
+  const json = await postWellStarQuery({
+    where,
+    geometry: JSON.stringify(geometryJson),
+    geometryType: "esriGeometryPolygon",
+    inSR: wkid,
+    spatialRel: "esriSpatialRelIntersects",
+    returnIdsOnly: "true"
+  });
+
+  return Array.isArray(json.objectIds) ? json.objectIds : [];
+}
+
+async function getWellGraphicsByObjectIds(objectIds) {
+  const graphics = [];
+
+  for (let start = 0; start < objectIds.length; start += REST_CHUNK_SIZE) {
+    const chunk = objectIds.slice(start, start + REST_CHUNK_SIZE);
+    const json = await postWellStarQuery({
+      objectIds: chunk.join(","),
+      outFields: WELL_FIELDS.join(","),
+      returnGeometry: "true",
+      outSR: 3857
+    });
+
+    for (const feature of json.features || []) {
+      const geometry = feature.geometry
+        ? {
+            type: "point",
+            x: feature.geometry.x,
+            y: feature.geometry.y,
+            spatialReference: { wkid: 3857 }
+          }
+        : null;
+
+      if (!geometry) continue;
+
+      graphics.push(new Graphic({
+        geometry,
+        attributes: feature.attributes || {},
+        symbol: symbolForStatus(feature.attributes?.WellStatus),
+        popupTemplate: wellPopup
+      }));
     }
   }
 
-  return [...byId.values()];
+  return graphics;
+}
+
+async function queryCityCommandGraphics(where, location) {
+  const ids = new Set();
+
+  for (const geometry of location.geometries || []) {
+    const geometryIds = await getSpatialObjectIdsViaRest(where, geometry);
+    geometryIds.forEach((id) => ids.add(id));
+  }
+
+  return getWellGraphicsByObjectIds([...ids]);
 }
 
 async function queryAttributeCommandSummary(where) {
@@ -724,49 +782,26 @@ function setControlsFromCommand(operator, location, statuses) {
   updateFilterSummary();
 }
 
-function renderExactCommandResults(features) {
+function renderExactCommandResults(graphics) {
   commandResultsLayer.removeAll();
-
-  for (const feature of features) {
-    const graphic = feature.clone();
-    graphic.symbol = symbolForStatus(graphic.attributes.WellStatus);
-    graphic.popupTemplate = wellPopup;
-    commandResultsLayer.add(graphic);
-  }
-
+  commandResultsLayer.addMany(graphics);
   wells.visible = false;
   commandResultsLayer.visible = true;
 }
 
-async function zoomToGraphicsOrLocation(features, location) {
-  if (features.length) {
-    await view.goTo(features.map((feature) => feature.geometry), { duration: 520, easing: "ease-out" });
+async function zoomToCityResult(graphics, location) {
+  if (graphics.length) {
+    await view.goTo(graphics, { duration: 520, easing: "ease-out" });
     return;
   }
 
-  const fallbackGeometries = location?.geometries || [];
-  if (fallbackGeometries.length) {
-    await view.goTo(fallbackGeometries, { duration: 520, easing: "ease-out" });
+  if (location?.geometries?.length) {
+    await view.goTo(location.geometries, { duration: 520, easing: "ease-out" });
   }
 }
 
 function resetMapFromCommand() {
-  selectedOperator = null;
-  selectedLocation = null;
-  setStatusSelection(ALL_STATUS_CATEGORIES);
-  operatorInput.value = "";
-  operatorSummary.textContent = "All operators";
-  operatorSummary.classList.remove("is-filtered");
-  clearOperatorButton.hidden = true;
-  clearSelection();
-
-  commandResultsLayer.removeAll();
-  commandResultsLayer.visible = false;
-  wells.visible = true;
-  wells.definitionExpression = "1=1";
-  wells.featureReduction = clusterConfig;
-  updateFilterSummary();
-
+  resetDisplayForNewCommand();
   commandResponse.textContent = "Reset complete — showing all California wells.";
   view.goTo({ center: [-119.45, 36.65], zoom: 5.8 }, { duration: 450 });
 }
@@ -781,11 +816,11 @@ async function runMapCommand(rawText) {
   }
 
   commandSubmit.disabled = true;
-  let stage = "parsing the command";
+  let stage = "resetting the previous command";
 
   try {
-    // Commands are always evaluated from the complete WellSTAR dataset. The
-    // currently displayed command/manual filters are never reused here.
+    resetDisplayForNewCommand();
+
     const nextOperator = parsed.operator ? operatorFilterContains(parsed.operator, parsed.operator) : null;
     const nextStatuses = new Set(parsed.status ? [parsed.status] : ALL_STATUS_CATEGORIES);
 
@@ -800,14 +835,14 @@ async function runMapCommand(rawText) {
     const where = buildWhere(nextOperator, nextLocation, nextStatuses);
 
     if (nextLocation?.geometries?.length) {
-      stage = "querying WellSTAR inside the city boundary";
-      const features = await queryCityCommandFeatures(where, nextLocation);
+      stage = "querying WellSTAR REST inside the city boundary";
+      const graphics = await queryCityCommandGraphics(where, nextLocation);
 
-      stage = "drawing the exact city result set";
+      stage = "drawing the exact city results";
       setControlsFromCommand(nextOperator, nextLocation, nextStatuses);
-      renderExactCommandResults(features);
+      renderExactCommandResults(graphics);
       clearSelection();
-      await zoomToGraphicsOrLocation(features, nextLocation);
+      await zoomToCityResult(graphics, nextLocation);
 
       const description = [
         parsed.status ? parsed.status.toLowerCase() : null,
@@ -816,9 +851,9 @@ async function runMapCommand(rawText) {
         `in ${nextLocation.label}`
       ].filter(Boolean).join(" ");
 
-      commandResponse.textContent = features.length
-        ? `Showing ${features.length.toLocaleString()} matching ${description}. The statewide well layer is hidden; only these exact matches are drawn.`
-        : `0 wells match ${description}. The statewide well layer is hidden, so the map is intentionally empty.`;
+      commandResponse.textContent = graphics.length
+        ? `Showing ${graphics.length.toLocaleString()} matching ${description}. The statewide layer is hidden; only the exact matches are drawn.`
+        : `0 wells match ${description}. The statewide layer is hidden, so the map is intentionally empty.`;
       return;
     }
 
@@ -827,8 +862,6 @@ async function runMapCommand(rawText) {
 
     stage = "applying the new command";
     setControlsFromCommand(nextOperator, nextLocation, nextStatuses);
-    commandResultsLayer.removeAll();
-    commandResultsLayer.visible = false;
     wells.visible = true;
     wells.featureReduction = clusterConfig;
     wells.definitionExpression = where;
@@ -846,7 +879,7 @@ async function runMapCommand(rawText) {
     ].filter(Boolean).join(" ");
 
     commandResponse.textContent = summary.count
-      ? `Showing ${summary.count.toLocaleString()} matching ${description}. All non-matching wells are excluded by the new command.`
+      ? `Showing ${summary.count.toLocaleString()} matching ${description}. All non-matching wells are excluded.`
       : `0 wells match ${description}.`;
   } catch (error) {
     console.error(`Map command failed while ${stage}:`, error);
