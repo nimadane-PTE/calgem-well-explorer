@@ -18,7 +18,7 @@
       <div class="title-card">
         <p class="eyebrow">CalGEM WellSTAR public GIS data</p>
         <h1>California Well Explorer</h1>
-        <p class="subtitle">Search wells, filter by operator and status, or use simple map commands.</p>
+        <p class="subtitle">Search wells, filter by operator and status, or use simple California-focused map commands.</p>
       </div>
 
       <div id="data-state" class="data-state" aria-live="polite">
@@ -49,16 +49,17 @@
       </form>
 
       <div id="command-response" class="command-response" aria-live="polite">
-        I understand operator, well status, and California city commands.
+        I understand operator, status, and California location commands.
       </div>
 
       <div class="command-examples" aria-label="Example commands">
         <button type="button" data-command="Show me wells operated by Chevron">Chevron wells</button>
         <button type="button" data-command="Show me wells operated by Chevron in Long Beach">Chevron · Long Beach</button>
         <button type="button" data-command="Show me idle wells operated by Chevron in Long Beach">Idle Chevron · Long Beach</button>
+        <button type="button" data-command="Show idle wells in Wilmington field">Idle · Wilmington field</button>
         <button type="button" data-command="Show all wells">Reset map</button>
       </div>
-      <div id="command-help" class="command-help">Supported: operator + optional status + optional incorporated California city.</div>
+      <div id="command-help" class="command-help">Supported locations: CalGEM district, field, area, county, or California city. Add words like “field”, “district”, or “county” when you want that specific geography.</div>
     </section>
 
     <section class="control-card" aria-label="Well search, operator filter, and status filters">
@@ -138,7 +139,7 @@
         <span id="zoom-mode-copy">Nearby wells are clustered for faster navigation. Zoom in for individual wells.</span>
       </div>
 
-      <div class="source-line">Source: California Department of Conservation, CalGEM WellSTAR · City boundaries: U.S. Census Bureau TIGERweb</div>
+      <div class="source-line">Sources: California Department of Conservation, CalGEM WellSTAR; CalGEM city, district, and field boundary services.</div>
     </section>
   </main>
 
