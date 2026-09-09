@@ -16,7 +16,7 @@ const CA_CITY_LAYER_URL = "https://gis.conservation.ca.gov/server/rest/services/
 const WELL_FIELDS = [
   "OBJECTID", "API", "LeaseName", "WellNumber", "WellDesignation", "WellStatus",
   "WellTypeLabel", "OperatorName", "FieldName", "AreaName", "District", "CountyName",
-  "SpudDate", "Latitude", "Longitude"
+  "Place", "SpudDate", "Latitude", "Longitude"
 ];
 
 const KNOWN_STATUS_VALUES = ["Active", "Idle", "New", "Plugged", "PluggedOnly", "Canceled"];
@@ -105,6 +105,7 @@ const wellPopup = {
       { fieldName: "AreaName", label: "Area" },
       { fieldName: "District", label: "CalGEM district" },
       { fieldName: "CountyName", label: "County" },
+      { fieldName: "Place", label: "Place" },
       { fieldName: "Latitude", label: "Latitude", format: { places: 5, digitSeparator: false } },
       { fieldName: "Longitude", label: "Longitude", format: { places: 5, digitSeparator: false } }
     ]
@@ -172,31 +173,32 @@ const view = new MapView({
 view.ui.add(new Home({ view }), "top-left");
 view.ui.add(new ScaleBar({ view, unit: "dual" }), "bottom-right");
 
-function buildStatusExpression() {
-  if (selectedStatuses.size === 0) return "1=0";
-  if (selectedStatuses.size === ALL_STATUS_CATEGORIES.length) return "1=1";
+function buildStatusExpression(statuses = selectedStatuses) {
+  if (statuses.size === 0) return "1=0";
+  if (statuses.size === ALL_STATUS_CATEGORIES.length) return "1=1";
+
   const clauses = [];
-  if (selectedStatuses.has("Active")) clauses.push("WellStatus = 'Active'");
-  if (selectedStatuses.has("Idle")) clauses.push("WellStatus = 'Idle'");
-  if (selectedStatuses.has("Permitted")) clauses.push("WellStatus = 'New'");
-  if (selectedStatuses.has("Plugged")) clauses.push("WellStatus IN ('Plugged', 'PluggedOnly')");
-  if (selectedStatuses.has("Canceled")) clauses.push("WellStatus = 'Canceled'");
-  if (selectedStatuses.has("Other")) {
+  if (statuses.has("Active")) clauses.push("WellStatus = 'Active'");
+  if (statuses.has("Idle")) clauses.push("WellStatus = 'Idle'");
+  if (statuses.has("Permitted")) clauses.push("WellStatus = 'New'");
+  if (statuses.has("Plugged")) clauses.push("WellStatus IN ('Plugged', 'PluggedOnly')");
+  if (statuses.has("Canceled")) clauses.push("WellStatus = 'Canceled'");
+  if (statuses.has("Other")) {
     const known = KNOWN_STATUS_VALUES.map((s) => `'${s}'`).join(", ");
     clauses.push(`(WellStatus IS NULL OR WellStatus NOT IN (${known}))`);
   }
   return clauses.length ? `(${clauses.join(" OR ")})` : "1=0";
 }
 
-function buildDefinitionExpression() {
-  const clauses = [buildStatusExpression()];
-  if (selectedOperator?.where) clauses.push(selectedOperator.where);
-  if (selectedLocation?.where) clauses.push(selectedLocation.where);
+function buildDefinitionExpression(operator = selectedOperator, location = selectedLocation, statuses = selectedStatuses) {
+  const clauses = [buildStatusExpression(statuses)];
+  if (operator?.where) clauses.push(operator.where);
+  if (location?.where) clauses.push(location.where);
   return clauses.join(" AND ");
 }
 
-function locationLabel() {
-  return selectedLocation ? `${selectedLocation.kind}: ${selectedLocation.label}` : null;
+function locationLabel(location = selectedLocation) {
+  return location ? `${location.kind}: ${location.label}` : null;
 }
 
 function updateFilterSummary() {
@@ -213,7 +215,11 @@ function updateFilterSummary() {
 function applySpatialFilter() {
   if (!wellsLayerView) return;
   wellsLayerView.filter = selectedLocation?.geometry
-    ? new FeatureFilter({ geometry: selectedLocation.geometry, spatialRelationship: "intersects" })
+    ? new FeatureFilter({
+        where: buildDefinitionExpression(),
+        geometry: selectedLocation.geometry,
+        spatialRelationship: "intersects"
+      })
     : null;
 }
 
@@ -248,13 +254,16 @@ resetFiltersButton.addEventListener("click", () => {
 
 function hideSearchResults() { searchResults.hidden = true; searchResults.replaceChildren(); }
 function showSearchMessage(message) {
-  const row = document.createElement("div"); row.className = "search-message"; row.textContent = message;
-  searchResults.replaceChildren(row); searchResults.hidden = false;
+  const row = document.createElement("div");
+  row.className = "search-message";
+  row.textContent = message;
+  searchResults.replaceChildren(row);
+  searchResults.hidden = false;
 }
 
 function searchWhere(term) {
   const like = `%${escapeSql(normalize(term))}%`;
-  return ["API", "WellDesignation", "LeaseName", "WellNumber", "OperatorName", "FieldName"]
+  return ["API", "WellDesignation", "LeaseName", "WellNumber", "OperatorName", "FieldName", "Place"]
     .map((field) => `UPPER(${field}) LIKE '${like}'`).join(" OR ");
 }
 
@@ -268,33 +277,56 @@ function resultLabel(a) {
 function renderSearchResults(features) {
   if (!features.length) return showSearchMessage("No matching wells found.");
   const fragment = document.createDocumentFragment();
+
   features.forEach((feature) => {
     const a = feature.attributes;
     const button = document.createElement("button");
-    button.type = "button"; button.className = "search-result"; button.setAttribute("role", "option");
-    const top = document.createElement("div"); top.className = "result-top";
-    const name = document.createElement("span"); name.className = "result-name"; name.textContent = resultLabel(a);
-    const status = document.createElement("span"); status.className = "result-status"; status.textContent = safeText(a.WellStatus, "Unknown");
-    const meta = document.createElement("div"); meta.className = "result-meta";
+    button.type = "button";
+    button.className = "search-result";
+    button.setAttribute("role", "option");
+
+    const top = document.createElement("div");
+    top.className = "result-top";
+    const name = document.createElement("span");
+    name.className = "result-name";
+    name.textContent = resultLabel(a);
+    const status = document.createElement("span");
+    status.className = "result-status";
+    status.textContent = safeText(a.WellStatus, "Unknown");
+    const meta = document.createElement("div");
+    meta.className = "result-meta";
     meta.textContent = `API ${safeText(a.API)} · ${safeText(a.OperatorName)} · ${safeText(a.FieldName)}`;
-    top.append(name, status); button.append(top, meta);
+
+    top.append(name, status);
+    button.append(top, meta);
     button.addEventListener("click", async () => {
-      hideSearchResults(); searchInput.value = resultLabel(a); clearSearchButton.hidden = false;
+      hideSearchResults();
+      searchInput.value = resultLabel(a);
+      clearSearchButton.hidden = false;
       await view.goTo({ target: feature.geometry, zoom: 16 }, { duration: 420, easing: "ease-out" });
       feature.popupTemplate = wellPopup;
       view.openPopup({ features: [feature], location: feature.geometry });
     });
     fragment.append(button);
   });
-  searchResults.replaceChildren(fragment); searchResults.hidden = false;
+
+  searchResults.replaceChildren(fragment);
+  searchResults.hidden = false;
 }
 
 async function runSearch(rawTerm) {
   const term = rawTerm.trim();
   if (term.length < 2) return hideSearchResults();
-  const requestId = ++searchRequestId; showSearchMessage("Searching WellSTAR…");
+
+  const requestId = ++searchRequestId;
+  showSearchMessage("Searching WellSTAR…");
   const query = queryLayer.createQuery();
-  query.where = searchWhere(term); query.outFields = WELL_FIELDS; query.returnGeometry = true; query.num = 10; query.orderByFields = ["API ASC"];
+  query.where = searchWhere(term);
+  query.outFields = WELL_FIELDS;
+  query.returnGeometry = true;
+  query.num = 10;
+  query.orderByFields = ["API ASC"];
+
   try {
     const response = await queryLayer.queryFeatures(query);
     if (requestId === searchRequestId) renderSearchResults(response.features.slice(0, 10));
@@ -305,69 +337,116 @@ async function runSearch(rawTerm) {
 
 searchInput.addEventListener("input", () => {
   clearSearchButton.hidden = searchInput.value.length === 0;
-  clearTimeout(searchTimer); searchTimer = setTimeout(() => runSearch(searchInput.value), 300);
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => runSearch(searchInput.value), 300);
 });
-searchInput.addEventListener("keydown", (e) => { if (e.key === "Escape") { hideSearchResults(); searchInput.blur(); } });
+searchInput.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    hideSearchResults();
+    searchInput.blur();
+  }
+});
 clearSearchButton.addEventListener("click", () => {
-  searchInput.value = ""; clearSearchButton.hidden = true; ++searchRequestId; hideSearchResults(); searchInput.focus();
+  searchInput.value = "";
+  clearSearchButton.hidden = true;
+  ++searchRequestId;
+  hideSearchResults();
+  searchInput.focus();
 });
 
 function hideOperatorResults() { operatorResults.hidden = true; operatorResults.replaceChildren(); }
 function showOperatorMessage(message) {
-  const row = document.createElement("div"); row.className = "operator-message"; row.textContent = message;
-  operatorResults.replaceChildren(row); operatorResults.hidden = false;
+  const row = document.createElement("div");
+  row.className = "operator-message";
+  row.textContent = message;
+  operatorResults.replaceChildren(row);
+  operatorResults.hidden = false;
+}
+
+function operatorFilterContains(term, label = term) {
+  return {
+    label,
+    where: `UPPER(OperatorName) LIKE '%${escapeSql(normalize(term))}%'`
+  };
 }
 
 function setOperatorExact(name) {
   selectedOperator = { label: name, where: `OperatorName = '${escapeSql(name)}'` };
-  operatorInput.value = name; operatorSummary.textContent = `Filtering: ${name}`;
-  operatorSummary.classList.add("is-filtered"); clearOperatorButton.hidden = false;
-  hideOperatorResults(); applyFilters();
-}
-
-function setOperatorContains(term, label = term) {
-  selectedOperator = { label, where: `UPPER(OperatorName) LIKE '%${escapeSql(normalize(term))}%'` };
-  operatorInput.value = label; operatorSummary.textContent = `Filtering: ${label}`;
-  operatorSummary.classList.add("is-filtered"); clearOperatorButton.hidden = false; applyFilters();
+  operatorInput.value = name;
+  operatorSummary.textContent = `Filtering: ${name}`;
+  operatorSummary.classList.add("is-filtered");
+  clearOperatorButton.hidden = false;
+  hideOperatorResults();
+  applyFilters();
 }
 
 function clearOperator() {
-  selectedOperator = null; operatorInput.value = ""; operatorSummary.textContent = "All operators";
-  operatorSummary.classList.remove("is-filtered"); clearOperatorButton.hidden = true; ++operatorRequestId;
-  hideOperatorResults(); applyFilters();
+  selectedOperator = null;
+  operatorInput.value = "";
+  operatorSummary.textContent = "All operators";
+  operatorSummary.classList.remove("is-filtered");
+  clearOperatorButton.hidden = true;
+  ++operatorRequestId;
+  hideOperatorResults();
+  applyFilters();
 }
 
 function renderOperatorResults(names) {
   if (!names.length) return showOperatorMessage("No matching operators found.");
   const fragment = document.createDocumentFragment();
   names.forEach((name) => {
-    const button = document.createElement("button"); button.type = "button"; button.className = "operator-result";
-    button.textContent = name; button.addEventListener("click", () => setOperatorExact(name)); fragment.append(button);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "operator-result";
+    button.textContent = name;
+    button.addEventListener("click", () => setOperatorExact(name));
+    fragment.append(button);
   });
-  operatorResults.replaceChildren(fragment); operatorResults.hidden = false;
+  operatorResults.replaceChildren(fragment);
+  operatorResults.hidden = false;
 }
 
 async function runOperatorSearch(rawTerm) {
-  const term = rawTerm.trim(); if (term.length < 2) return hideOperatorResults();
-  const requestId = ++operatorRequestId; showOperatorMessage("Finding operators…");
+  const term = rawTerm.trim();
+  if (term.length < 2) return hideOperatorResults();
+
+  const requestId = ++operatorRequestId;
+  showOperatorMessage("Finding operators…");
   const query = queryLayer.createQuery();
   query.where = `UPPER(OperatorName) LIKE '%${escapeSql(normalize(term))}%'`;
-  query.outFields = ["OperatorName"]; query.returnGeometry = false; query.returnDistinctValues = true; query.orderByFields = ["OperatorName ASC"]; query.num = 20;
+  query.outFields = ["OperatorName"];
+  query.returnGeometry = false;
+  query.returnDistinctValues = true;
+  query.orderByFields = ["OperatorName ASC"];
+  query.num = 20;
+
   try {
-    const response = await queryLayer.queryFeatures(query); if (requestId !== operatorRequestId) return;
+    const response = await queryLayer.queryFeatures(query);
+    if (requestId !== operatorRequestId) return;
     const names = [...new Set(response.features.map((f) => safeText(f.attributes.OperatorName, "")).filter(Boolean))].slice(0, 20);
     renderOperatorResults(names);
-  } catch (error) { if (requestId === operatorRequestId) showOperatorMessage("Operator lookup failed. Try again."); }
+  } catch (error) {
+    if (requestId === operatorRequestId) showOperatorMessage("Operator lookup failed. Try again.");
+  }
 }
 
 operatorInput.addEventListener("input", () => {
   if (selectedOperator && operatorInput.value !== selectedOperator.label) {
-    selectedOperator = null; operatorSummary.textContent = "Choose an operator from the results";
-    operatorSummary.classList.remove("is-filtered"); clearOperatorButton.hidden = true; applyFilters();
+    selectedOperator = null;
+    operatorSummary.textContent = "Choose an operator from the results";
+    operatorSummary.classList.remove("is-filtered");
+    clearOperatorButton.hidden = true;
+    applyFilters();
   }
-  clearTimeout(operatorTimer); operatorTimer = setTimeout(() => runOperatorSearch(operatorInput.value), 250);
+  clearTimeout(operatorTimer);
+  operatorTimer = setTimeout(() => runOperatorSearch(operatorInput.value), 250);
 });
-operatorInput.addEventListener("keydown", (e) => { if (e.key === "Escape") { hideOperatorResults(); operatorInput.blur(); } });
+operatorInput.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    hideOperatorResults();
+    operatorInput.blur();
+  }
+});
 clearOperatorButton.addEventListener("click", clearOperator);
 
 document.addEventListener("pointerdown", (event) => {
@@ -379,7 +458,11 @@ async function findExactWellAttribute(field, rawValue) {
   const value = normalize(rawValue);
   const query = queryLayer.createQuery();
   query.where = `UPPER(${field}) = '${escapeSql(value)}'`;
-  query.outFields = [field]; query.returnGeometry = false; query.returnDistinctValues = true; query.num = 5;
+  query.outFields = [field];
+  query.returnGeometry = false;
+  query.returnDistinctValues = true;
+  query.num = 10;
+
   const response = await queryLayer.queryFeatures(query);
   const match = response.features.map((f) => safeText(f.attributes[field], "")).find(Boolean);
   return match || null;
@@ -388,9 +471,13 @@ async function findExactWellAttribute(field, rawValue) {
 async function resolveCity(rawValue) {
   const query = cityLayer.createQuery();
   query.where = `UPPER(CITY) = '${escapeSql(normalize(rawValue))}'`;
-  query.outFields = ["CITY", "COUNTY"]; query.returnGeometry = true; query.num = 10;
+  query.outFields = ["CITY", "COUNTY"];
+  query.returnGeometry = true;
+  query.num = 10;
+
   const response = await cityLayer.queryFeatures(query);
   if (!response.features.length) return null;
+
   const exact = response.features[0];
   return {
     kind: "California city",
@@ -401,24 +488,45 @@ async function resolveCity(rawValue) {
 }
 
 async function resolveLocation(rawLocation) {
-  let text = rawLocation.trim().replace(/[.,]+$/, "");
+  const text = rawLocation.trim().replace(/[.,]+$/, "");
   const lower = text.toLowerCase();
-  const explicit = [
+
+  const explicitRules = [
     { word: "field", field: "FieldName", kind: "CalGEM field" },
     { word: "district", field: "District", kind: "CalGEM district" },
     { word: "county", field: "CountyName", kind: "County" },
-    { word: "area", field: "AreaName", kind: "CalGEM area" }
+    { word: "area", field: "AreaName", kind: "CalGEM area" },
+    { word: "place", field: "Place", kind: "CalGEM place" }
   ];
 
-  for (const rule of explicit) {
+  for (const rule of explicitRules) {
     if (lower.endsWith(` ${rule.word}`)) {
       const name = text.slice(0, -(rule.word.length + 1)).trim();
       const exact = await findExactWellAttribute(rule.field, name);
-      return exact ? { kind: rule.kind, label: exact, where: `${rule.field} = '${escapeSql(exact)}'`, geometry: null } : null;
+      return exact
+        ? { kind: rule.kind, label: exact, where: `${rule.field} = '${escapeSql(exact)}'`, geometry: null }
+        : null;
     }
   }
 
-  // Unqualified California place names: agency geography first, then California city.
+  if (lower.endsWith(" city")) {
+    const name = text.slice(0, -5).trim();
+    return resolveCity(name);
+  }
+
+  const exactPlace = await findExactWellAttribute("Place", text);
+  if (exactPlace) {
+    return {
+      kind: "CalGEM place",
+      label: exactPlace,
+      where: `Place = '${escapeSql(exactPlace)}'`,
+      geometry: null
+    };
+  }
+
+  const city = await resolveCity(text);
+  if (city) return city;
+
   for (const rule of [
     { field: "FieldName", kind: "CalGEM field" },
     { field: "AreaName", kind: "CalGEM area" },
@@ -426,16 +534,26 @@ async function resolveLocation(rawLocation) {
     { field: "District", kind: "CalGEM district" }
   ]) {
     const exact = await findExactWellAttribute(rule.field, text);
-    if (exact) return { kind: rule.kind, label: exact, where: `${rule.field} = '${escapeSql(exact)}'`, geometry: null };
+    if (exact) {
+      return {
+        kind: rule.kind,
+        label: exact,
+        where: `${rule.field} = '${escapeSql(exact)}'`,
+        geometry: null
+      };
+    }
   }
 
-  return resolveCity(text);
+  return null;
 }
 
 function parseCommand(text) {
   const clean = text.trim().replace(/\s+/g, " ");
   const lower = clean.toLowerCase();
-  if (/^(show|display|map)?\s*(me\s*)?(all\s+)?wells\s*$/.test(lower) || lower === "reset map") return { reset: true };
+
+  if (/^(show|display|map)?\s*(me\s*)?(all\s+)?wells\s*$/.test(lower) || lower === "reset map") {
+    return { reset: true };
+  }
 
   let status = null;
   if (/\bidle\b/.test(lower)) status = "Idle";
@@ -448,64 +566,115 @@ function parseCommand(text) {
   const operator = operatorMatch ? operatorMatch[1].trim() : null;
   const locationMatch = clean.match(/\s+in\s+(.+)$/i);
   const location = locationMatch ? locationMatch[1].trim() : null;
+
   return { reset: false, status, operator, location };
 }
 
-async function zoomToCurrentResult() {
-  if (selectedLocation?.geometry) {
-    await view.goTo(selectedLocation.geometry.extent.expand(1.2), { duration: 500, easing: "ease-out" });
+function makeResultQuery(operator, location, statuses) {
+  const query = queryLayer.createQuery();
+  query.where = buildDefinitionExpression(operator, location, statuses);
+  if (location?.geometry) {
+    query.geometry = location.geometry;
+    query.spatialRelationship = "intersects";
+  }
+  return query;
+}
+
+async function getResultSummary(operator, location, statuses) {
+  const countQuery = makeResultQuery(operator, location, statuses);
+  countQuery.returnGeometry = false;
+  const count = await queryLayer.queryFeatureCount(countQuery);
+
+  const extentQuery = makeResultQuery(operator, location, statuses);
+  extentQuery.returnGeometry = true;
+  const extentResult = await queryLayer.queryExtent(extentQuery);
+
+  return { count, extent: extentResult.extent || null };
+}
+
+async function zoomToResult(extent, location) {
+  if (extent) {
+    await view.goTo(extent.expand(1.15), { duration: 500, easing: "ease-out" });
     return;
   }
-  const query = queryLayer.createQuery();
-  query.where = buildDefinitionExpression();
-  query.returnGeometry = true;
-  const extentResult = await queryLayer.queryExtent(query);
-  if (extentResult.extent) await view.goTo(extentResult.extent.expand(1.15), { duration: 500, easing: "ease-out" });
+  if (location?.geometry?.extent) {
+    await view.goTo(location.geometry.extent.expand(1.2), { duration: 500, easing: "ease-out" });
+  }
+}
+
+function commitCommandFilters(operator, location, statuses) {
+  selectedOperator = operator;
+  selectedLocation = location;
+  setStatusSelection([...statuses]);
+
+  if (selectedOperator) {
+    operatorInput.value = selectedOperator.label;
+    operatorSummary.textContent = `Filtering: ${selectedOperator.label}`;
+    operatorSummary.classList.add("is-filtered");
+    clearOperatorButton.hidden = false;
+  } else {
+    operatorInput.value = "";
+    operatorSummary.textContent = "All operators";
+    operatorSummary.classList.remove("is-filtered");
+    clearOperatorButton.hidden = true;
+  }
+
+  applyFilters();
 }
 
 function resetMapFromCommand() {
-  selectedOperator = null; selectedLocation = null; setStatusSelection(ALL_STATUS_CATEGORIES);
-  operatorInput.value = ""; operatorSummary.textContent = "All operators"; operatorSummary.classList.remove("is-filtered"); clearOperatorButton.hidden = true;
-  applyFilters(); commandResponse.textContent = "Reset complete — showing all California wells.";
+  selectedOperator = null;
+  selectedLocation = null;
+  setStatusSelection(ALL_STATUS_CATEGORIES);
+  operatorInput.value = "";
+  operatorSummary.textContent = "All operators";
+  operatorSummary.classList.remove("is-filtered");
+  clearOperatorButton.hidden = true;
+  applyFilters();
+  commandResponse.textContent = "Reset complete — showing all California wells.";
   view.goTo({ center: [-119.45, 36.65], zoom: 5.8 }, { duration: 450 });
 }
 
 async function runMapCommand(rawText) {
   const parsed = parseCommand(rawText);
   if (parsed.reset) return resetMapFromCommand();
+
   if (!parsed.operator && !parsed.status && !parsed.location) {
     commandResponse.textContent = "I could not match that command. Try an operator, status, and/or California location.";
     return;
   }
 
-  commandSubmit.disabled = true; commandResponse.textContent = "Resolving CalGEM filters…";
+  commandSubmit.disabled = true;
+  commandResponse.textContent = "Resolving the full filter…";
+
   try {
-    if (parsed.operator) setOperatorContains(parsed.operator, parsed.operator);
-    else { selectedOperator = null; operatorInput.value = ""; operatorSummary.textContent = "All operators"; clearOperatorButton.hidden = true; }
+    const nextOperator = parsed.operator ? operatorFilterContains(parsed.operator, parsed.operator) : null;
+    const nextStatuses = new Set(parsed.status ? [parsed.status] : ALL_STATUS_CATEGORIES);
+    const nextLocation = parsed.location ? await resolveLocation(parsed.location) : null;
 
-    if (parsed.status) setStatusSelection([parsed.status]); else setStatusSelection(ALL_STATUS_CATEGORIES);
-
-    selectedLocation = null;
-    if (parsed.location) {
-      selectedLocation = await resolveLocation(parsed.location);
-      if (!selectedLocation) {
-        applyFilters();
-        commandResponse.textContent = `I could not resolve “${parsed.location}” as an exact CalGEM field/area/district/county or California city.`;
-        return;
-      }
+    if (parsed.location && !nextLocation) {
+      commandResponse.textContent = `I could not resolve “${parsed.location}”. Try “${parsed.location} city”, “${parsed.location} field”, “${parsed.location} county”, or “${parsed.location} district”.`;
+      return;
     }
 
-    applyFilters();
-    await zoomToCurrentResult();
+    const summary = await getResultSummary(nextOperator, nextLocation, nextStatuses);
+    commitCommandFilters(nextOperator, nextLocation, nextStatuses);
+    await zoomToResult(summary.extent, nextLocation);
+
     const pieces = [];
     if (parsed.status) pieces.push(parsed.status.toLowerCase());
     pieces.push("wells");
-    if (selectedOperator) pieces.push(`operated by ${selectedOperator.label}`);
-    if (selectedLocation) pieces.push(`in ${selectedLocation.label}`);
-    commandResponse.textContent = `Showing ${pieces.join(" ")}.`;
+    if (nextOperator) pieces.push(`operated by ${nextOperator.label}`);
+    if (nextLocation) pieces.push(`in ${nextLocation.label}`);
+
+    if (summary.count === 0) {
+      commandResponse.textContent = `0 wells match: ${pieces.join(" ")}. All non-matching wells are hidden.`;
+    } else {
+      commandResponse.textContent = `Showing ${summary.count.toLocaleString()} matching ${pieces.join(" ")}. All other wells are hidden.`;
+    }
   } catch (error) {
     console.error("Map command failed:", error);
-    commandResponse.textContent = "That command could not be completed from the CalGEM services. Try a more specific location name.";
+    commandResponse.textContent = "That command could not be completed. Try a more specific California location, such as “Long Beach city” or “Wilmington field”.";
   } finally {
     commandSubmit.disabled = false;
   }
@@ -534,14 +703,17 @@ view.on("click", async (event) => {
   try {
     const hit = await view.hitTest(event, { include: wells });
     const result = hit.results.find((r) => r.graphic?.layer === wells && !r.graphic?.isAggregate);
-    selectionHandle?.remove(); selectionHandle = null;
+    selectionHandle?.remove();
+    selectionHandle = null;
     if (result && wellsLayerView) selectionHandle = wellsLayerView.highlight(result.graphic);
   } catch (_) {}
 });
 
 reactiveUtils.watch(() => view.scale, (scale) => {
   const mode = scale > CLUSTER_MAX_SCALE ? "regional" : "individual";
-  if (mode === lastZoomMode) return; lastZoomMode = mode;
+  if (mode === lastZoomMode) return;
+  lastZoomMode = mode;
+
   if (mode === "regional") {
     zoomModeTitle.textContent = "Regional view";
     zoomModeCopy.textContent = "Nearby wells are clustered. Zoom closer for individual round status markers.";
@@ -553,9 +725,12 @@ reactiveUtils.watch(() => view.scale, (scale) => {
 
 reactiveUtils.watch(() => view.updating, (updating) => {
   if (updating) {
-    dataState.classList.remove("ready", "error"); dataStateText.textContent = "Updating map…";
+    dataState.classList.remove("ready", "error");
+    dataStateText.textContent = "Updating map…";
   } else {
-    dataState.classList.add("ready"); dataState.classList.remove("error"); dataStateText.textContent = "WellSTAR layer ready";
+    dataState.classList.add("ready");
+    dataState.classList.remove("error");
+    dataStateText.textContent = "WellSTAR layer ready";
   }
 }, { initial: true });
 
@@ -563,8 +738,10 @@ try {
   await Promise.all([wells.load(), queryLayer.load(), cityLayer.load(), view.when()]);
   wellsLayerView = await view.whenLayerView(wells);
   applyFilters();
-  dataState.classList.add("ready"); dataStateText.textContent = "WellSTAR layer ready";
+  dataState.classList.add("ready");
+  dataStateText.textContent = "WellSTAR layer ready";
 } catch (error) {
   console.error("Could not initialize map:", error);
-  dataState.classList.add("error"); dataStateText.textContent = "WellSTAR layer unavailable";
+  dataState.classList.add("error");
+  dataStateText.textContent = "WellSTAR layer unavailable";
 }
