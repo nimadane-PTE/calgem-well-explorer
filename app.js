@@ -154,25 +154,21 @@ const searchLayer = new FeatureLayer({
   labelsVisible: false
 });
 
-// Use the public cached Light Gray Canvas services directly. This avoids the
-// token-based Basemap Styles endpoint while retaining a clean, fast basemap.
-const lightGrayBasemap = new Basemap({
-  title: "Light Gray Canvas",
+// Public cached street tiles give the map useful road, park, water, city,
+// neighborhood, and building context without requiring ArcGIS credentials.
+// A slight opacity reduction keeps the well symbols visually dominant.
+const streetBasemap = new Basemap({
+  title: "Detailed Streets",
   baseLayers: [
     new TileLayer({
-      url: "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer"
-    })
-  ],
-  referenceLayers: [
-    new TileLayer({
-      url: "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer",
-      isReference: true
+      url: "https://services.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer",
+      opacity: 0.92
     })
   ]
 });
 
 const map = new Map({
-  basemap: lightGrayBasemap,
+  basemap: streetBasemap,
   layers: [wells]
 });
 
