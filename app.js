@@ -41,10 +41,17 @@ const resetFiltersButton = document.getElementById("reset-filters");
 const searchInput = document.getElementById("well-search");
 const searchResults = document.getElementById("search-results");
 const clearSearchButton = document.getElementById("clear-search");
+const operatorInput = document.getElementById("operator-filter");
+const operatorResults = document.getElementById("operator-results");
+const operatorSummary = document.getElementById("operator-summary");
+const clearOperatorButton = document.getElementById("clear-operator");
 
 const selectedStatuses = new Set(ALL_STATUS_CATEGORIES);
+let selectedOperator = null;
 let searchTimer = null;
 let searchRequestId = 0;
+let operatorTimer = null;
+let operatorRequestId = 0;
 let lastZoomMode = null;
 
 function simpleMarker(style, color, size = 10) {
@@ -154,9 +161,6 @@ const searchLayer = new FeatureLayer({
   labelsVisible: false
 });
 
-// Public cached street tiles give the map useful road, park, water, city,
-// neighborhood, and building context without requiring ArcGIS credentials.
-// A slight opacity reduction keeps the well symbols visually dominant.
 const streetBasemap = new Basemap({
   title: "Detailed Streets",
   baseLayers: [
@@ -195,7 +199,7 @@ const view = new MapView({
 view.ui.add(new Home({ view }), "top-left");
 view.ui.add(new ScaleBar({ view, unit: "dual" }), "bottom-right");
 
-function buildDefinitionExpression() {
+function buildStatusExpression() {
   if (selectedStatuses.size === 0) return "1=0";
   if (selectedStatuses.size === ALL_STATUS_CATEGORIES.length) return "1=1";
 
@@ -211,17 +215,33 @@ function buildDefinitionExpression() {
     clauses.push(`(WellStatus IS NULL OR WellStatus NOT IN (${known}))`);
   }
 
-  return clauses.length ? clauses.join(" OR ") : "1=0";
+  return clauses.length ? `(${clauses.join(" OR ")})` : "1=0";
+}
+
+function buildDefinitionExpression() {
+  const clauses = [buildStatusExpression()];
+
+  if (selectedOperator) {
+    clauses.push(`OperatorName = '${escapeSql(selectedOperator)}'`);
+  }
+
+  return clauses.join(" AND ");
 }
 
 function updateFilterSummary() {
   const count = selectedStatuses.size;
-  if (count === ALL_STATUS_CATEGORIES.length) filterSummary.textContent = "Showing all well statuses";
-  else if (count === 0) filterSummary.textContent = "No statuses selected";
-  else filterSummary.textContent = `Showing ${count} of ${ALL_STATUS_CATEGORIES.length} status groups`;
+  let statusText;
+
+  if (count === ALL_STATUS_CATEGORIES.length) statusText = "All well statuses";
+  else if (count === 0) statusText = "No statuses selected";
+  else statusText = `${count} of ${ALL_STATUS_CATEGORIES.length} status groups`;
+
+  filterSummary.textContent = selectedOperator
+    ? `${statusText} · ${selectedOperator}`
+    : statusText;
 }
 
-function applyStatusFilters() {
+function applyFilters() {
   wells.definitionExpression = buildDefinitionExpression();
   updateFilterSummary();
 }
@@ -237,7 +257,7 @@ statusFilterContainer.addEventListener("click", (event) => {
   if (willEnable) selectedStatuses.add(status);
   else selectedStatuses.delete(status);
 
-  applyStatusFilters();
+  applyFilters();
 });
 
 resetFiltersButton.addEventListener("click", () => {
@@ -246,7 +266,7 @@ resetFiltersButton.addEventListener("click", () => {
   statusFilterContainer.querySelectorAll(".status-chip").forEach((button) => {
     button.setAttribute("aria-pressed", "true");
   });
-  applyStatusFilters();
+  applyFilters();
 });
 
 function hideSearchResults() {
@@ -394,8 +414,124 @@ clearSearchButton.addEventListener("click", () => {
   searchInput.focus();
 });
 
+function hideOperatorResults() {
+  operatorResults.hidden = true;
+  operatorResults.replaceChildren();
+}
+
+function showOperatorMessage(message) {
+  const row = document.createElement("div");
+  row.className = "operator-message";
+  row.textContent = message;
+  operatorResults.replaceChildren(row);
+  operatorResults.hidden = false;
+}
+
+function setOperator(operatorName) {
+  selectedOperator = operatorName;
+  operatorInput.value = operatorName;
+  operatorSummary.textContent = `Filtering: ${operatorName}`;
+  operatorSummary.classList.add("is-filtered");
+  clearOperatorButton.hidden = false;
+  hideOperatorResults();
+  applyFilters();
+}
+
+function clearOperator() {
+  selectedOperator = null;
+  operatorInput.value = "";
+  operatorSummary.textContent = "All operators";
+  operatorSummary.classList.remove("is-filtered");
+  clearOperatorButton.hidden = true;
+  ++operatorRequestId;
+  hideOperatorResults();
+  applyFilters();
+}
+
+function renderOperatorResults(operatorNames) {
+  if (!operatorNames.length) {
+    showOperatorMessage("No matching operators found.");
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+
+  operatorNames.forEach((operatorName) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "operator-result";
+    button.setAttribute("role", "option");
+    button.textContent = operatorName;
+    button.addEventListener("click", () => setOperator(operatorName));
+    fragment.append(button);
+  });
+
+  operatorResults.replaceChildren(fragment);
+  operatorResults.hidden = false;
+}
+
+async function runOperatorSearch(rawTerm) {
+  const term = rawTerm.trim();
+  if (term.length < 2) {
+    hideOperatorResults();
+    return;
+  }
+
+  const requestId = ++operatorRequestId;
+  showOperatorMessage("Finding operators…");
+
+  const escaped = escapeSql(term.toUpperCase());
+  const query = searchLayer.createQuery();
+  query.where = `UPPER(OperatorName) LIKE '%${escaped}%'`;
+  query.outFields = ["OperatorName"];
+  query.returnGeometry = false;
+  query.returnDistinctValues = true;
+  query.orderByFields = ["OperatorName ASC"];
+  query.num = 20;
+
+  try {
+    const response = await searchLayer.queryFeatures(query);
+    if (requestId !== operatorRequestId) return;
+
+    const names = [...new Set(
+      response.features
+        .map((feature) => safeText(feature.attributes.OperatorName, ""))
+        .filter(Boolean)
+    )].slice(0, 20);
+
+    renderOperatorResults(names);
+  } catch (error) {
+    if (requestId !== operatorRequestId) return;
+    console.error("Operator search failed:", error);
+    showOperatorMessage("Operator lookup failed. Try again.");
+  }
+}
+
+operatorInput.addEventListener("input", () => {
+  if (selectedOperator && operatorInput.value !== selectedOperator) {
+    selectedOperator = null;
+    operatorSummary.textContent = "Choose an operator from the results";
+    operatorSummary.classList.remove("is-filtered");
+    clearOperatorButton.hidden = true;
+    applyFilters();
+  }
+
+  clearTimeout(operatorTimer);
+  operatorTimer = setTimeout(() => runOperatorSearch(operatorInput.value), 250);
+});
+
+operatorInput.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    hideOperatorResults();
+    operatorInput.blur();
+  }
+});
+
+clearOperatorButton.addEventListener("click", clearOperator);
+
 document.addEventListener("pointerdown", (event) => {
   if (!event.target.closest(".search-section")) hideSearchResults();
+  if (!event.target.closest(".operator-section")) hideOperatorResults();
 });
 
 reactiveUtils.watch(
@@ -433,7 +569,7 @@ reactiveUtils.watch(
 
 try {
   await Promise.all([wells.load(), searchLayer.load()]);
-  applyStatusFilters();
+  applyFilters();
   dataState.classList.add("ready");
   dataStateText.textContent = "WellSTAR layer ready";
 } catch (error) {
