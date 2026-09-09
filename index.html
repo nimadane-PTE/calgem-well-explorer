@@ -4,13 +4,74 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="A fast, searchable interactive map of California wells using CalGEM WellSTAR public GIS data." />
-  <title>CalGEM Well Explorer</title>
+  <title>California Well Explorer</title>
 
   <script type="module" src="https://js.arcgis.com/5.1/"></script>
   <link rel="stylesheet" href="https://js.arcgis.com/5.1/esri/themes/light/main.css" />
   <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./access.css" />
 </head>
-<body>
+<body class="access-locked">
+  <section id="access-gate" class="access-gate" aria-labelledby="access-title">
+    <div class="access-backdrop"></div>
+
+    <div class="access-card">
+      <div class="access-brand">
+        <p class="access-eyebrow">California Well Explorer</p>
+        <h1 id="access-title">Explore California wells more easily</h1>
+        <p class="access-copy">
+          Search, filter, and query public CalGEM WellSTAR well data with a cleaner map and a lightweight command assistant.
+        </p>
+      </div>
+
+      <form
+        id="access-form"
+        class="access-form"
+        name="map-access"
+        method="POST"
+        data-netlify="true"
+        data-netlify-honeypot="bot-field"
+      >
+        <input type="hidden" name="form-name" value="map-access" />
+        <input type="hidden" name="lead_source" value="california-well-explorer" />
+
+        <p class="bot-field" aria-hidden="true">
+          <label>Do not fill this out: <input name="bot-field" tabindex="-1" autocomplete="off" /></label>
+        </p>
+
+        <div class="access-name-grid">
+          <label>
+            <span>First name</span>
+            <input type="text" name="first_name" autocomplete="given-name" required />
+          </label>
+
+          <label>
+            <span>Last name</span>
+            <input type="text" name="last_name" autocomplete="family-name" required />
+          </label>
+        </div>
+
+        <label>
+          <span>Email</span>
+          <input type="email" name="email" autocomplete="email" required />
+        </label>
+
+        <label class="access-consent">
+          <input type="checkbox" name="consent" value="yes" required />
+          <span>I agree that my name and email may be stored to provide access and for project-related communication.</span>
+        </label>
+
+        <button id="access-submit" type="submit">Enter the map</button>
+
+        <p id="access-message" class="access-message" aria-live="polite"></p>
+      </form>
+
+      <div class="access-notice">
+        <strong>Independent project.</strong> This site uses public California Department of Conservation / CalGEM data and is not an official CalGEM login or government website.
+      </div>
+    </div>
+  </section>
+
   <main id="app-shell">
     <div id="viewDiv" aria-label="Interactive map of CalGEM wells"></div>
 
@@ -143,6 +204,7 @@
     </section>
   </main>
 
+  <script type="module" src="./access.js"></script>
   <script type="module" src="./app.js"></script>
 </body>
 </html>
