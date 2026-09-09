@@ -18,7 +18,7 @@
       <div class="title-card">
         <p class="eyebrow">CalGEM WellSTAR public GIS data</p>
         <h1>California Well Explorer</h1>
-        <p class="subtitle">Search wells, filter by status, and inspect core well information without fighting the map.</p>
+        <p class="subtitle">Search wells, filter by operator and status, and inspect core well information without fighting the map.</p>
       </div>
 
       <div id="data-state" class="data-state" aria-live="polite">
@@ -27,7 +27,7 @@
       </div>
     </header>
 
-    <section class="control-card" aria-label="Well search and status filters">
+    <section class="control-card" aria-label="Well search, operator filter, and status filters">
       <div class="control-section search-section">
         <label for="well-search">Find a well</label>
         <div class="search-wrap">
@@ -43,8 +43,30 @@
           />
           <button id="clear-search" class="clear-search" type="button" aria-label="Clear search" hidden>×</button>
         </div>
-        <div id="search-hint" class="search-hint">Type at least 2 characters. Choose a result to zoom directly to it.</div>
+        <div id="search-hint" class="search-hint">Find one specific well and zoom directly to it.</div>
         <div id="search-results" class="search-results" role="listbox" hidden></div>
+      </div>
+
+      <div class="control-section operator-section">
+        <div class="section-heading-row">
+          <h2>Operator</h2>
+          <button id="clear-operator" class="text-button" type="button" hidden>All operators</button>
+        </div>
+        <div class="operator-wrap">
+          <input
+            id="operator-filter"
+            type="search"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Type Chevron, Aera, CRC…"
+            aria-describedby="operator-hint"
+            aria-controls="operator-results"
+            aria-autocomplete="list"
+          />
+        </div>
+        <div id="operator-hint" class="operator-hint">Type at least 2 characters, then choose the operator you want to isolate.</div>
+        <div id="operator-results" class="operator-results" role="listbox" hidden></div>
+        <div id="operator-summary" class="operator-summary" aria-live="polite">All operators</div>
       </div>
 
       <div class="control-section status-section">
