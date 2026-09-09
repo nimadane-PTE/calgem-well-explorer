@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="A fast, searchable interactive map of California wells using CalGEM WellSTAR public GIS data." />
+  <title>CalGEM Well Explorer</title>
+
+  <script type="module" src="https://js.arcgis.com/5.1/"></script>
+  <link rel="stylesheet" href="https://js.arcgis.com/5.1/esri/themes/light/main.css" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main id="app-shell">
+    <div id="viewDiv" aria-label="Interactive map of CalGEM wells"></div>
+
+    <header class="map-header" aria-label="Map title and data state">
+      <div class="title-card">
+        <p class="eyebrow">CalGEM WellSTAR public GIS data</p>
+        <h1>California Well Explorer</h1>
+        <p class="subtitle">Search wells, filter by status, and inspect core well information without fighting the map.</p>
+      </div>
+
+      <div id="data-state" class="data-state" aria-live="polite">
+        <span class="state-dot"></span>
+        <span id="data-state-text">Loading well layer…</span>
+      </div>
+    </header>
+
+    <section class="control-card" aria-label="Well search and status filters">
+      <div class="control-section search-section">
+        <label for="well-search">Find a well</label>
+        <div class="search-wrap">
+          <input
+            id="well-search"
+            type="search"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="API, operator, field, lease…"
+            aria-describedby="search-hint"
+            aria-controls="search-results"
+            aria-autocomplete="list"
+          />
+          <button id="clear-search" class="clear-search" type="button" aria-label="Clear search" hidden>×</button>
+        </div>
+        <div id="search-hint" class="search-hint">Type at least 2 characters. Choose a result to zoom directly to it.</div>
+        <div id="search-results" class="search-results" role="listbox" hidden></div>
+      </div>
+
+      <div class="control-section status-section">
+        <div class="section-heading-row">
+          <h2>Well status</h2>
+          <button id="reset-filters" class="text-button" type="button">Show all</button>
+        </div>
+
+        <div id="status-filters" class="status-filters">
+          <button class="status-chip active" type="button" data-status="Active" aria-pressed="true">
+            <span class="marker marker-active"></span><span>Active</span>
+          </button>
+          <button class="status-chip idle" type="button" data-status="Idle" aria-pressed="true">
+            <span class="marker marker-idle"></span><span>Idle</span>
+          </button>
+          <button class="status-chip permitted" type="button" data-status="Permitted" aria-pressed="true">
+            <span class="marker marker-permitted"></span><span>Permitted</span>
+          </button>
+          <button class="status-chip plugged" type="button" data-status="Plugged" aria-pressed="true">
+            <span class="marker marker-plugged"></span><span>Plugged</span>
+          </button>
+          <button class="status-chip canceled" type="button" data-status="Canceled" aria-pressed="true">
+            <span class="marker marker-canceled"></span><span>Canceled</span>
+          </button>
+          <button class="status-chip other" type="button" data-status="Other" aria-pressed="true">
+            <span class="marker marker-other"></span><span>Other</span>
+          </button>
+        </div>
+
+        <div id="filter-summary" class="filter-summary" aria-live="polite">Showing all well statuses</div>
+      </div>
+
+      <div class="control-section zoom-help">
+        <strong id="zoom-mode-title">Regional view</strong>
+        <span id="zoom-mode-copy">Nearby wells are clustered for faster navigation. Zoom in for individual wells.</span>
+      </div>
+
+      <div class="source-line">Source: California Department of Conservation, CalGEM WellSTAR</div>
+    </section>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
