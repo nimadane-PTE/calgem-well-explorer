@@ -1,14 +1,15 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-ai-edition="true">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="A fast, searchable interactive map of California wells using CalGEM WellSTAR public GIS data." />
-  <title>California Well Explorer</title>
+  <meta name="description" content="AI-assisted exploration of California wells using CalGEM WellSTAR public GIS data." />
+  <title>California Well Explorer AI</title>
 
   <script type="module" src="https://js.arcgis.com/5.1/"></script>
   <link rel="stylesheet" href="https://js.arcgis.com/5.1/esri/themes/light/main.css" />
   <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./ai.css" />
 </head>
 <body>
   <main id="app-shell">
@@ -16,9 +17,9 @@
 
     <header class="map-header" aria-label="Map title and data state">
       <div class="title-card">
-        <p class="eyebrow">CalGEM WellSTAR public GIS data</p>
-        <h1>California Well Explorer</h1>
-        <p class="subtitle">Search wells, filter by operator and status, or use simple California-focused map commands.</p>
+        <p class="eyebrow">CalGEM WellSTAR public GIS data · AI edition</p>
+        <h1>California Well Explorer AI</h1>
+        <p class="subtitle">Ask natural-language questions, map matching wells, and request lists of fields such as API numbers.</p>
       </div>
 
       <div id="data-state" class="data-state" aria-live="polite">
@@ -27,39 +28,53 @@
       </div>
     </header>
 
-    <section class="command-card" aria-label="Map command assistant">
+    <section class="command-card ai-command-card" aria-label="AI WellSTAR assistant">
       <div class="command-heading">
         <div>
-          <p class="command-eyebrow">Map Assistant</p>
-          <h2>Ask the map</h2>
+          <p class="command-eyebrow">AI WellSTAR Assistant</p>
+          <h2>Ask about the wells</h2>
         </div>
-        <span class="no-ai-badge">No AI tokens</span>
+        <span class="ai-badge">AI powered</span>
       </div>
 
-      <form id="command-form" class="command-form">
+      <form id="ai-form" class="command-form">
         <input
-          id="command-input"
+          id="ai-input"
           type="text"
           autocomplete="off"
-          spellcheck="false"
-          placeholder="Show me idle wells operated by Chevron in Long Beach"
-          aria-describedby="command-help"
+          spellcheck="true"
+          placeholder="Find Chevron idle wells and give me their API numbers"
+          aria-describedby="ai-help"
         />
-        <button id="command-submit" type="submit">Run</button>
+        <button id="ai-submit" type="submit">Ask</button>
       </form>
 
-      <div id="command-response" class="command-response" aria-live="polite">
-        I understand operator, status, and California location commands.
+      <div id="ai-response" class="command-response ai-response" aria-live="polite">
+        Ask for wells by operator, status, location, or request a count or list of WellSTAR fields.
       </div>
 
-      <div class="command-examples" aria-label="Example commands">
-        <button type="button" data-command="Show me wells operated by Chevron">Chevron wells</button>
-        <button type="button" data-command="Show me wells operated by Chevron in Long Beach">Chevron · Long Beach</button>
-        <button type="button" data-command="Show me idle wells operated by Chevron in Long Beach">Idle Chevron · Long Beach</button>
-        <button type="button" data-command="Show idle wells in Wilmington field">Idle · Wilmington field</button>
-        <button type="button" data-command="Show all wells">Reset map</button>
+      <div id="ai-results" class="ai-results" aria-live="polite"></div>
+
+      <div class="command-examples" aria-label="Example AI questions">
+        <button type="button" data-ai-command="Find Chevron idle wells and give me a list of their API numbers">Chevron idle API list</button>
+        <button type="button" data-ai-command="Give me a list of Chevron idle wells in Santa Monica with their API numbers">Santa Monica list</button>
+        <button type="button" data-ai-command="How many idle wells are in Wilmington field?">Count · Wilmington</button>
+        <button type="button" data-ai-command="Show active Chevron wells in Long Beach">Map · Long Beach</button>
       </div>
-      <div id="command-help" class="command-help">Supported locations: CalGEM district, field, area, county, or California city. Add words like “field”, “district”, or “county” when you want that specific geography.</div>
+
+      <div id="ai-help" class="command-help">
+        AI interprets your request; matching well records are retrieved from CalGEM WellSTAR. “API number” maps to the WellSTAR API field, while “well number” maps to WellNumber.
+      </div>
+    </section>
+
+    <!-- The stable deterministic command engine remains available to the AI UI
+         as the map-execution layer, but its original controls are hidden. -->
+    <section hidden aria-hidden="true">
+      <form id="command-form">
+        <input id="command-input" type="text" />
+        <button id="command-submit" type="submit">Run</button>
+      </form>
+      <div id="command-response"></div>
     </section>
 
     <section class="control-card" aria-label="Well search, operator filter, and status filters">
@@ -111,24 +126,12 @@
         </div>
 
         <div id="status-filters" class="status-filters">
-          <button class="status-chip active" type="button" data-status="Active" aria-pressed="true">
-            <span class="marker marker-active"></span><span>Active</span>
-          </button>
-          <button class="status-chip idle" type="button" data-status="Idle" aria-pressed="true">
-            <span class="marker marker-idle"></span><span>Idle</span>
-          </button>
-          <button class="status-chip permitted" type="button" data-status="Permitted" aria-pressed="true">
-            <span class="marker marker-permitted"></span><span>Permitted</span>
-          </button>
-          <button class="status-chip plugged" type="button" data-status="Plugged" aria-pressed="true">
-            <span class="marker marker-plugged"></span><span>Plugged</span>
-          </button>
-          <button class="status-chip canceled" type="button" data-status="Canceled" aria-pressed="true">
-            <span class="marker marker-canceled"></span><span>Canceled</span>
-          </button>
-          <button class="status-chip other" type="button" data-status="Other" aria-pressed="true">
-            <span class="marker marker-other"></span><span>Other</span>
-          </button>
+          <button class="status-chip active" type="button" data-status="Active" aria-pressed="true"><span class="marker marker-active"></span><span>Active</span></button>
+          <button class="status-chip idle" type="button" data-status="Idle" aria-pressed="true"><span class="marker marker-idle"></span><span>Idle</span></button>
+          <button class="status-chip permitted" type="button" data-status="Permitted" aria-pressed="true"><span class="marker marker-permitted"></span><span>Permitted</span></button>
+          <button class="status-chip plugged" type="button" data-status="Plugged" aria-pressed="true"><span class="marker marker-plugged"></span><span>Plugged</span></button>
+          <button class="status-chip canceled" type="button" data-status="Canceled" aria-pressed="true"><span class="marker marker-canceled"></span><span>Canceled</span></button>
+          <button class="status-chip other" type="button" data-status="Other" aria-pressed="true"><span class="marker marker-other"></span><span>Other</span></button>
         </div>
 
         <div id="filter-summary" class="filter-summary" aria-live="polite">Showing all well statuses</div>
@@ -139,10 +142,11 @@
         <span id="zoom-mode-copy">Nearby wells are clustered for faster navigation. Zoom in for individual wells.</span>
       </div>
 
-      <div class="source-line">Sources: California Department of Conservation, CalGEM WellSTAR; CalGEM city, district, and field boundary services.</div>
+      <div class="source-line">Sources: California Department of Conservation, CalGEM WellSTAR and California city boundaries. AI interprets requests; source records come from WellSTAR.</div>
     </section>
   </main>
 
   <script type="module" src="./app.js"></script>
+  <script type="module" src="./ai.js"></script>
 </body>
 </html>
