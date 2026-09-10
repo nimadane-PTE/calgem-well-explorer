@@ -1,3 +1,5 @@
+declare const Netlify: { env: { get(name: string): string | undefined } };
+
 const WELL_URL = "https://gis.conservation.ca.gov/server/rest/services/WellSTAR/Wells/MapServer/0";
 const CITY_URL = "https://gis.conservation.ca.gov/server/rest/services/Base/Base_BOECities/FeatureServer/0";
 const MAX_RETURNED_ROWS = 500;
@@ -206,6 +208,31 @@ async function fetchRows(objectIds: number[], fields: string[]) {
   return rows;
 }
 
+function extractPlannerText(json: any) {
+  if (json?.status === "incomplete") {
+    const reason = json?.incomplete_details?.reason || "unknown reason";
+    throw new Error(`The AI planner response was incomplete (${reason}). Please try again.`);
+  }
+
+  if (typeof json?.output_text === "string" && json.output_text.trim()) {
+    return json.output_text.trim();
+  }
+
+  for (const item of json?.output || []) {
+    if (item?.type !== "message") continue;
+    for (const content of item?.content || []) {
+      if (content?.type === "refusal") {
+        throw new Error(`The AI planner declined the request${content.refusal ? `: ${content.refusal}` : "."}`);
+      }
+      if (content?.type === "output_text" && typeof content.text === "string" && content.text.trim()) {
+        return content.text.trim();
+      }
+    }
+  }
+
+  throw new Error(`The AI planner returned no usable structured output (status: ${json?.status || "unknown"}).`);
+}
+
 async function makePlan(message: string, apiKey: string) {
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -215,9 +242,9 @@ async function makePlan(message: string, apiKey: string) {
     },
     body: JSON.stringify({
       model: "gpt-5.6-luna",
-      reasoning: { effort: "low" },
+      reasoning: { effort: "none" },
       store: false,
-      max_output_tokens: 500,
+      max_output_tokens: 1200,
       instructions: `You translate user questions into a structured query plan for the California CalGEM WellSTAR wells dataset.
 
 Dataset semantics:
@@ -248,8 +275,13 @@ Do not answer the user and do not invent records. Return only the query plan.`,
 
   const json = await response.json();
   if (!response.ok) throw new Error(json.error?.message || `OpenAI request failed with HTTP ${response.status}`);
-  if (!json.output_text) throw new Error("The AI planner returned no structured output.");
-  return JSON.parse(json.output_text);
+
+  const structuredText = extractPlannerText(json);
+  try {
+    return JSON.parse(structuredText);
+  } catch {
+    throw new Error("The AI planner returned text that could not be parsed as the expected query plan.");
+  }
 }
 
 function deterministicMapCommand(plan: any, location: any) {
