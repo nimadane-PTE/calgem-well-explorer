@@ -52,6 +52,35 @@ function normalize(value: string) {
   return String(value || "").trim().replace(/\s+/g, " ").toUpperCase();
 }
 
+function cleanLocationPlan(plan: any) {
+  let name = plan?.location_name == null ? null : String(plan.location_name).trim().replace(/[.,]+$/, "");
+  let type = String(plan?.location_type || "auto").toLowerCase();
+
+  if (!name) return { ...plan, location_name: null, location_type: type };
+
+  const suffixRules = [
+    { type: "field", regex: /\s+field$/i },
+    { type: "county", regex: /\s+county$/i },
+    { type: "district", regex: /\s+district$/i },
+    { type: "area", regex: /\s+area$/i },
+    { type: "place", regex: /\s+place$/i },
+    { type: "city", regex: /\s+city$/i }
+  ];
+
+  for (const rule of suffixRules) {
+    if (!rule.regex.test(name)) continue;
+    name = name.replace(rule.regex, "").trim();
+    if (type === "auto" || type === rule.type) type = rule.type;
+    break;
+  }
+
+  return {
+    ...plan,
+    location_name: name || null,
+    location_type: type
+  };
+}
+
 async function arcgisPost(url: string, params: Record<string, unknown>) {
   const body = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -85,32 +114,36 @@ function statusWhere(status: string | null) {
   return "1=1";
 }
 
+function distinctAttributeValues(json: any, field: string) {
+  return [...new Set((json.features || [])
+    .map((feature: any) => String(feature.attributes?.[field] || "").trim())
+    .filter(Boolean))] as string[];
+}
+
 async function findAttributeMatch(field: string, rawName: string) {
   const wanted = normalize(rawName);
+
   const exact = await arcgisPost(WELL_URL, {
     where: `UPPER(${field}) = '${escapeSql(wanted)}'`,
     outFields: field,
     returnGeometry: false,
-    returnDistinctValues: true,
     resultRecordCount: 100
   });
-
-  const exactValue = exact.features?.map((f: any) => f.attributes?.[field]).find((v: any) => String(v || "").trim());
-  if (exactValue) return String(exactValue).trim();
+  const exactValues = distinctAttributeValues(exact, field);
+  if (exactValues.length) return exactValues[0];
 
   const contains = await arcgisPost(WELL_URL, {
     where: `UPPER(${field}) LIKE '%${escapeSql(wanted)}%'`,
     outFields: field,
     returnGeometry: false,
-    returnDistinctValues: true,
     resultRecordCount: 500
   });
+  const values = distinctAttributeValues(contains, field);
+  if (!values.length) return null;
 
-  const values = [...new Set((contains.features || [])
-    .map((f: any) => String(f.attributes?.[field] || "").trim())
-    .filter(Boolean))] as string[];
-
-  return values.sort((a, b) => a.length - b.length || a.localeCompare(b))[0] || null;
+  const normalizedExact = values.find((value) => normalize(value) === wanted);
+  if (normalizedExact) return normalizedExact;
+  return values.sort((a, b) => a.length - b.length || a.localeCompare(b))[0];
 }
 
 async function findCity(rawName: string) {
@@ -253,7 +286,7 @@ Dataset semantics:
 - OperatorName is the operator.
 - WellStatus statuses include Active, Idle, New (present to users as Permitted), Plugged/PluggedOnly, Canceled, and other.
 - Locations may be California city boundaries or WellSTAR FieldName, CountyName, District, AreaName, or Place.
-- If a user says "Wilmington field", location_type must be field and location_name Wilmington.
+- location_name must contain only the geographic name, without words such as field, county, district, area, place, or city. Example: "Wilmington field" -> location_name "Wilmington", location_type "field". "Kern County" -> location_name "Kern", location_type "county".
 - If a user says "Santa Monica" without a qualifier, use location_type auto; California city should be preferred by the application.
 - A request to "find", "show", or "map" wells without asking for a list/count is map.
 - If they ask for a list, use list or map_and_list. If they also use find/show in a map context, prefer map_and_list.
@@ -278,8 +311,9 @@ Do not answer the user and do not invent records. Return only the query plan.`,
 
   const structuredText = extractPlannerText(json);
   try {
-    return JSON.parse(structuredText);
-  } catch {
+    return cleanLocationPlan(JSON.parse(structuredText));
+  } catch (error: any) {
+    if (String(error?.message || "").startsWith("The AI planner")) throw error;
     throw new Error("The AI planner returned text that could not be parsed as the expected query plan.");
   }
 }
@@ -321,7 +355,7 @@ export default async (req: Request) => {
     const location = await resolveLocation(plan.location_name, plan.location_type);
     if (plan.location_name && !location) {
       return Response.json({
-        error: `I understood the location as “${plan.location_name}”, but could not match it to a California city or WellSTAR location field.`,
+        error: `I understood the location as “${plan.location_name}” (${plan.location_type}), but could not match it to the corresponding California city or WellSTAR location field.`,
         plan
       }, { status: 422 });
     }
