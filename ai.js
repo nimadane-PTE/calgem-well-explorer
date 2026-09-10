@@ -110,9 +110,47 @@ function renderAnswer(result) {
   aiResults.replaceChildren();
 }
 
+async function readJsonResponse(response) {
+  const raw = await response.text();
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch (_) {
+    throw new Error(`The AI function returned a non-JSON response (HTTP ${response.status}).`);
+  }
+}
+
+async function checkAIHealth() {
+  if (!aiResponse) return;
+  aiResponse.textContent = "Checking AI service…";
+
+  try {
+    const response = await fetch("/api/wellstar-ai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ health: true })
+    });
+    const result = await readJsonResponse(response);
+
+    if (!response.ok) {
+      throw new Error(result.error || `AI health check failed with HTTP ${response.status}`);
+    }
+
+    if (!result.api_key_configured) {
+      aiResponse.textContent = "AI function is live, but OPENAI_API_KEY is not configured for this Netlify project.";
+      return;
+    }
+
+    aiResponse.textContent = "AI service ready. Ask a WellSTAR question below.";
+  } catch (error) {
+    console.error("AI health check failed:", error);
+    aiResponse.textContent = `AI connection problem: ${error.message || "Could not reach the serverless function."}`;
+  }
+}
+
 async function askAI(message) {
   aiSubmit.disabled = true;
-  aiResponse.textContent = "Understanding your question and querying WellSTAR…";
+  aiResponse.textContent = "Understanding your question with AI and querying WellSTAR…";
   aiResults.replaceChildren();
 
   try {
@@ -122,8 +160,10 @@ async function askAI(message) {
       body: JSON.stringify({ message })
     });
 
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || `Request failed with HTTP ${response.status}`);
+    const result = await readJsonResponse(response);
+    if (!response.ok) {
+      throw new Error(result.error || `AI request failed with HTTP ${response.status}`);
+    }
 
     renderAnswer(result);
 
@@ -132,22 +172,28 @@ async function askAI(message) {
     }
   } catch (error) {
     console.error("AI assistant request failed:", error);
-    aiResponse.textContent = error.message || "The AI assistant could not complete that request.";
+    aiResponse.textContent = `AI request failed: ${error.message || "The AI assistant could not complete that request."}`;
   } finally {
     aiSubmit.disabled = false;
   }
 }
 
-aiForm?.addEventListener("submit", (event) => {
-  event.preventDefault();
-  const message = aiInput.value.trim();
-  if (message) askAI(message);
-});
-
-document.querySelectorAll("[data-ai-command]").forEach((button) => {
-  button.addEventListener("click", () => {
-    const message = button.dataset.aiCommand;
-    aiInput.value = message;
-    askAI(message);
+if (!aiForm || !aiInput || !aiSubmit || !aiResponse || !aiResults) {
+  console.error("AI interface initialization failed because one or more required elements are missing.");
+} else {
+  aiForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const message = aiInput.value.trim();
+    if (message) askAI(message);
   });
-});
+
+  document.querySelectorAll("[data-ai-command]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const message = button.dataset.aiCommand;
+      aiInput.value = message;
+      askAI(message);
+    });
+  });
+
+  checkAIHealth();
+}
