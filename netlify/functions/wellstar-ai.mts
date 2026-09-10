@@ -269,9 +269,18 @@ export default async (req: Request) => {
 
   try {
     const apiKey = Netlify.env.get("OPENAI_API_KEY");
+    const body = await req.json();
+
+    if (body?.health === true) {
+      return Response.json({
+        ok: true,
+        api_key_configured: Boolean(apiKey),
+        service: "wellstar-ai"
+      });
+    }
+
     if (!apiKey) return Response.json({ error: "OPENAI_API_KEY is not configured for this site." }, { status: 503 });
 
-    const body = await req.json();
     const message = String(body?.message || "").trim();
     if (!message) return Response.json({ error: "Please enter a question." }, { status: 400 });
     if (message.length > 1200) return Response.json({ error: "Please keep the request under 1,200 characters." }, { status: 400 });
