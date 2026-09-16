@@ -1,9 +1,8 @@
-import { getDeployStore, getStore } from "@netlify/blobs";
+import { getStore } from "@netlify/blobs";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 
 declare const Netlify: {
   env: { get(name: string): string | undefined };
-  context?: { deploy?: { context?: string } };
 };
 
 export type SessionUser = {
@@ -16,13 +15,8 @@ export type SessionUser = {
 
 const STORE_NAME = "wellstar-ai-security";
 
-function isProduction() {
-  return Netlify.context?.deploy?.context === "production";
-}
-
 export function securityStore() {
-  if (isProduction()) return getStore(STORE_NAME, { consistency: "strong" });
-  return getDeployStore(STORE_NAME);
+  return getStore(STORE_NAME, { consistency: "strong" });
 }
 
 function requiredSecret() {
