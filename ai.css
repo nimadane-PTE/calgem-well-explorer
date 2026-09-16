@@ -1,6 +1,6 @@
 .ai-command-card {
   width: min(560px, calc(100vw - 390px));
-  max-height: 56vh;
+  max-height: 62vh;
   overflow: hidden;
 }
 
@@ -15,24 +15,82 @@
   letter-spacing: .02em;
 }
 
-#ai-input {
+.ai-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.ai-sign-out {
+  border: 0;
+  background: transparent;
+  color: #566473;
+  font-size: 10px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ai-user-line {
+  margin: -2px 0 8px;
+  color: #687583;
+  font-size: 10px;
+}
+
+.ai-access-copy {
+  margin: 0 0 12px;
+  color: #566473;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.ai-access-form {
+  display: grid;
+  gap: 7px;
+}
+
+.ai-access-form > label:not(.ai-consent-row) {
+  color: #3f4d5b;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.ai-access-form input[type="text"],
+.ai-access-form input[type="email"] {
   width: 100%;
   min-width: 0;
-  height: 44px;
-  padding: 0 12px;
+  height: 40px;
+  padding: 0 11px;
   border: 1px solid var(--line-strong);
-  border-radius: 12px;
+  border-radius: 10px;
   outline: none;
   background: white;
   color: var(--text);
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
+.ai-access-form input:focus,
 #ai-input:focus {
   border-color: rgba(36,94,168,.68);
   box-shadow: 0 0 0 3px rgba(36,94,168,.12);
 }
 
+.ai-consent-row {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  gap: 8px;
+  align-items: start;
+  margin: 4px 0 2px;
+  color: #62707e;
+  font-size: 9.5px;
+  line-height: 1.35;
+}
+
+.ai-consent-row input {
+  margin-top: 1px;
+}
+
+#ai-access-submit,
 #ai-submit {
   height: 44px;
   padding: 0 16px;
@@ -45,9 +103,30 @@
   cursor: pointer;
 }
 
+#ai-access-submit:disabled,
 #ai-submit:disabled {
   opacity: .55;
   cursor: wait;
+}
+
+.ai-access-response {
+  min-height: 18px;
+  color: #9c3434;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+#ai-input {
+  width: 100%;
+  min-width: 0;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  outline: none;
+  background: white;
+  color: var(--text);
+  font-size: 12.5px;
 }
 
 .ai-response {
@@ -96,7 +175,7 @@
 @media (max-width: 760px) {
   .ai-command-card {
     width: auto;
-    max-height: 42vh;
+    max-height: 48vh;
   }
   .ai-table-wrap {
     max-height: 160px;
