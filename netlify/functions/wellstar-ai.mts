@@ -1,3 +1,14 @@
+import {
+  aiIsDisabled,
+  enforceQueryRate,
+  hashedClientIp,
+  limitsConfig,
+  logEvent,
+  obviousAbuse,
+  sessionFromRequest,
+  touchUser
+} from "../lib/security.mts";
+
 declare const Netlify: { env: { get(name: string): string | undefined } };
 
 const WELL_URL = "https://gis.conservation.ca.gov/server/rest/services/WellSTAR/Wells/MapServer/0";
@@ -74,11 +85,7 @@ function cleanLocationPlan(plan: any) {
     break;
   }
 
-  return {
-    ...plan,
-    location_name: name || null,
-    location_type: type
-  };
+  return { ...plan, location_name: name || null, location_type: type };
 }
 
 async function arcgisPost(url: string, params: Record<string, unknown>) {
@@ -247,9 +254,7 @@ function extractPlannerText(json: any) {
     throw new Error(`The AI planner response was incomplete (${reason}). Please try again.`);
   }
 
-  if (typeof json?.output_text === "string" && json.output_text.trim()) {
-    return json.output_text.trim();
-  }
+  if (typeof json?.output_text === "string" && json.output_text.trim()) return json.output_text.trim();
 
   for (const item of json?.output || []) {
     if (item?.type !== "message") continue;
@@ -330,8 +335,16 @@ function deterministicMapCommand(plan: any, location: any) {
   return parts.join(" ");
 }
 
+function looksLikeWellSTARRequest(message: string) {
+  return /\b(well|wells|wellstar|calgem|api|operator|lease|field|county|district|area|place|idle|active|plugged|abandoned|canceled|cancelled|permitted|spud|latitude|longitude|oil|gas|geothermal)\b/i.test(message);
+}
+
 export default async (req: Request) => {
   if (req.method !== "POST") return Response.json({ error: "POST required" }, { status: 405 });
+
+  let user: any = null;
+  let message = "";
+  const ipHash = hashedClientIp(req);
 
   try {
     const apiKey = Netlify.env.get("OPENAI_API_KEY");
@@ -341,19 +354,55 @@ export default async (req: Request) => {
       return Response.json({
         ok: true,
         api_key_configured: Boolean(apiKey),
+        ai_disabled: aiIsDisabled(),
         service: "wellstar-ai"
       });
     }
 
+    if (aiIsDisabled()) {
+      return Response.json({ error: "AI requests are temporarily disabled by the site owner." }, { status: 503 });
+    }
     if (!apiKey) return Response.json({ error: "OPENAI_API_KEY is not configured for this site." }, { status: 503 });
 
-    const message = String(body?.message || "").trim();
+    user = sessionFromRequest(req);
+    if (!user) return Response.json({ error: "AI access is required. Please enter your name and email first." }, { status: 401 });
+
+    message = String(body?.message || "").trim();
+    const cfg = limitsConfig();
     if (!message) return Response.json({ error: "Please enter a question." }, { status: 400 });
-    if (message.length > 1200) return Response.json({ error: "Please keep the request under 1,200 characters." }, { status: 400 });
+    if (message.length > cfg.promptMax) {
+      return Response.json({ error: `Please keep the request under ${cfg.promptMax} characters.` }, { status: 400 });
+    }
+
+    if (obviousAbuse(message)) {
+      await logEvent({ type: "blocked_request", user, ipHash, status: "prompt-injection", message });
+      return Response.json({ error: "This assistant only supports legitimate CalGEM WellSTAR data queries." }, { status: 400 });
+    }
+
+    if (!looksLikeWellSTARRequest(message)) {
+      await logEvent({ type: "blocked_request", user, ipHash, status: "out-of-scope", message });
+      return Response.json({ error: "This AI assistant is limited to California CalGEM WellSTAR well-data questions." }, { status: 400 });
+    }
+
+    const rate = await enforceQueryRate(user, req, message);
+    if (!rate.allowed) {
+      await logEvent({ type: "rate_limited", user, ipHash, status: "blocked", message, detail: rate.results || null });
+      return Response.json({ error: rate.error }, { status: rate.status });
+    }
+
+    await touchUser(user, req);
 
     const plan = await makePlan(message, apiKey);
     const location = await resolveLocation(plan.location_name, plan.location_type);
     if (plan.location_name && !location) {
+      await logEvent({
+        type: "query",
+        user,
+        ipHash,
+        status: "location-not-found",
+        message,
+        detail: { location_name: plan.location_name, location_type: plan.location_type }
+      });
       return Response.json({
         error: `I understood the location as “${plan.location_name}” (${plan.location_type}), but could not match it to the corresponding California city or WellSTAR location field.`,
         plan
@@ -372,6 +421,21 @@ export default async (req: Request) => {
     const needRows = plan.action === "list" || plan.action === "map_and_list";
     const rows = needRows ? await fetchRows(ids, fields) : [];
 
+    await logEvent({
+      type: "query",
+      user,
+      ipHash,
+      status: "ok",
+      message,
+      detail: {
+        count: ids.length,
+        action: plan.action,
+        status_filter: plan.status,
+        operator: plan.operator,
+        location: location ? { kind: location.kind, label: location.label } : null
+      }
+    });
+
     return Response.json({
       plan,
       resolved_location: location ? { kind: location.kind, label: location.label } : null,
@@ -381,10 +445,18 @@ export default async (req: Request) => {
       truncated: needRows && ids.length > MAX_RETURNED_ROWS,
       row_limit: MAX_RETURNED_ROWS,
       map_command: deterministicMapCommand(plan, location),
-      source: "CalGEM WellSTAR"
+      source: "CalGEM WellSTAR",
+      usage: rate.results
     });
   } catch (error: any) {
     console.error("WellSTAR AI function failed:", error);
+    if (user) {
+      try {
+        await logEvent({ type: "query_error", user, ipHash, status: "error", message, detail: { error: error?.message || "unknown" } });
+      } catch (logError) {
+        console.error("Could not write AI error log:", logError);
+      }
+    }
     return Response.json({ error: error?.message || "The AI query failed." }, { status: 500 });
   }
 };
