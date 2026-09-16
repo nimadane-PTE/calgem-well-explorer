@@ -29,46 +29,80 @@
     </header>
 
     <section class="command-card ai-command-card" aria-label="AI WellSTAR assistant">
-      <div class="command-heading">
-        <div>
-          <p class="command-eyebrow">AI WellSTAR Assistant</p>
-          <h2>Ask about the wells</h2>
+      <div id="ai-access-panel" class="ai-access-panel">
+        <div class="command-heading">
+          <div>
+            <p class="command-eyebrow">AI WellSTAR Assistant</p>
+            <h2>Request access</h2>
+          </div>
+          <span class="ai-badge">Protected AI</span>
         </div>
-        <span class="ai-badge">AI powered</span>
+
+        <p class="ai-access-copy">The map is public. AI requests are limited and logged to protect this demonstration from automated or excessive use.</p>
+
+        <form id="ai-access-form" class="ai-access-form">
+          <label for="ai-access-name">Name</label>
+          <input id="ai-access-name" name="name" type="text" autocomplete="name" maxlength="80" required placeholder="Your name" />
+
+          <label for="ai-access-email">Email</label>
+          <input id="ai-access-email" name="email" type="email" autocomplete="email" maxlength="254" required placeholder="you@example.com" />
+
+          <label class="ai-consent-row">
+            <input id="ai-access-consent" type="checkbox" required />
+            <span>I understand that my name, email, AI query text, timestamps, and security/usage metadata are logged for access control and abuse prevention. Raw IP addresses are not stored.</span>
+          </label>
+
+          <button id="ai-access-submit" type="submit">Access AI assistant</button>
+          <div id="ai-access-response" class="ai-access-response" aria-live="polite"></div>
+        </form>
       </div>
 
-      <form id="ai-form" class="command-form">
-        <input
-          id="ai-input"
-          type="text"
-          autocomplete="off"
-          spellcheck="true"
-          placeholder="Find Chevron idle wells and give me their API numbers"
-          aria-describedby="ai-help"
-        />
-        <button id="ai-submit" type="submit">Ask</button>
-      </form>
+      <div id="ai-assistant-content" hidden>
+        <div class="command-heading">
+          <div>
+            <p class="command-eyebrow">AI WellSTAR Assistant</p>
+            <h2>Ask about the wells</h2>
+          </div>
+          <div class="ai-heading-actions">
+            <span class="ai-badge">AI powered</span>
+            <button id="ai-sign-out" class="ai-sign-out" type="button">Sign out</button>
+          </div>
+        </div>
 
-      <div id="ai-response" class="command-response ai-response" aria-live="polite">
-        Ask for wells by operator, status, location, or request a count or list of WellSTAR fields.
-      </div>
+        <div id="ai-user-line" class="ai-user-line"></div>
 
-      <div id="ai-results" class="ai-results" aria-live="polite"></div>
+        <form id="ai-form" class="command-form">
+          <input
+            id="ai-input"
+            type="text"
+            autocomplete="off"
+            spellcheck="true"
+            maxlength="800"
+            placeholder="Find Chevron idle wells and give me their API numbers"
+            aria-describedby="ai-help"
+          />
+          <button id="ai-submit" type="submit">Ask</button>
+        </form>
 
-      <div class="command-examples" aria-label="Example AI questions">
-        <button type="button" data-ai-command="Find Chevron idle wells and give me a list of their API numbers">Chevron idle API list</button>
-        <button type="button" data-ai-command="Give me a list of Chevron idle wells in Santa Monica with their API numbers">Santa Monica list</button>
-        <button type="button" data-ai-command="How many idle wells are in Wilmington field?">Count · Wilmington</button>
-        <button type="button" data-ai-command="Show active Chevron wells in Long Beach">Map · Long Beach</button>
-      </div>
+        <div id="ai-response" class="command-response ai-response" aria-live="polite">
+          Ask for wells by operator, status, location, or request a count or list of WellSTAR fields.
+        </div>
 
-      <div id="ai-help" class="command-help">
-        AI interprets your request; matching well records are retrieved from CalGEM WellSTAR. “API number” maps to the WellSTAR API field, while “well number” maps to WellNumber.
+        <div id="ai-results" class="ai-results" aria-live="polite"></div>
+
+        <div class="command-examples" aria-label="Example AI questions">
+          <button type="button" data-ai-command="Find Chevron idle wells and give me a list of their API numbers">Chevron idle API list</button>
+          <button type="button" data-ai-command="Give me a list of Chevron idle wells in Santa Monica with their API numbers">Santa Monica list</button>
+          <button type="button" data-ai-command="How many idle wells are in Wilmington field?">Count · Wilmington</button>
+          <button type="button" data-ai-command="Show active Chevron wells in Long Beach">Map · Long Beach</button>
+        </div>
+
+        <div id="ai-help" class="command-help">
+          AI interprets WellSTAR-related requests only. Matching records are retrieved from CalGEM WellSTAR. “API number” maps to the WellSTAR API field, while “well number” maps to WellNumber. Usage limits apply.
+        </div>
       </div>
     </section>
 
-    <!-- The stable deterministic command engine remains available to the AI UI
-         as the map-execution layer, but its original controls are hidden. -->
     <section hidden aria-hidden="true">
       <form id="command-form">
         <input id="command-input" type="text" />
@@ -81,16 +115,7 @@
       <div class="control-section search-section">
         <label for="well-search">Find a well</label>
         <div class="search-wrap">
-          <input
-            id="well-search"
-            type="search"
-            autocomplete="off"
-            spellcheck="false"
-            placeholder="API, operator, field, lease…"
-            aria-describedby="search-hint"
-            aria-controls="search-results"
-            aria-autocomplete="list"
-          />
+          <input id="well-search" type="search" autocomplete="off" spellcheck="false" placeholder="API, operator, field, lease…" aria-describedby="search-hint" aria-controls="search-results" aria-autocomplete="list" />
           <button id="clear-search" class="clear-search" type="button" aria-label="Clear search" hidden>×</button>
         </div>
         <div id="search-hint" class="search-hint">Find one specific well and zoom directly to it.</div>
@@ -103,16 +128,7 @@
           <button id="clear-operator" class="text-button" type="button" hidden>All operators</button>
         </div>
         <div class="operator-wrap">
-          <input
-            id="operator-filter"
-            type="search"
-            autocomplete="off"
-            spellcheck="false"
-            placeholder="Type Chevron, Aera, CRC…"
-            aria-describedby="operator-hint"
-            aria-controls="operator-results"
-            aria-autocomplete="list"
-          />
+          <input id="operator-filter" type="search" autocomplete="off" spellcheck="false" placeholder="Type Chevron, Aera, CRC…" aria-describedby="operator-hint" aria-controls="operator-results" aria-autocomplete="list" />
         </div>
         <div id="operator-hint" class="operator-hint">Type at least 2 characters, then choose the operator you want to isolate.</div>
         <div id="operator-results" class="operator-results" role="listbox" hidden></div>
