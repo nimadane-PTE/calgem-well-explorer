@@ -1,1 +1,1 @@
-AI site redeploy marker after access-control and rate-limit configuration.
+AI site redeploy marker after final access-control, logging, and rate-limit configuration.
