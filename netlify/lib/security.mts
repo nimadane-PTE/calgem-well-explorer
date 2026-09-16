@@ -20,8 +20,8 @@ export function securityStore() {
 }
 
 function requiredSecret() {
-  const value = Netlify.env.get("AI_ACCESS_SIGNING_SECRET");
-  if (!value) throw new Error("AI_ACCESS_SIGNING_SECRET is not configured for this site.");
+  const value = Netlify.env.get("AI_ACCESS_SIGNING_SECRET") || Netlify.env.get("OPENAI_API_KEY");
+  if (!value) throw new Error("No server-side signing secret is configured for this site.");
   return value;
 }
 
