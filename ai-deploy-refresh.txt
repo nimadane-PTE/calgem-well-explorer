@@ -1,1 +1,1 @@
-AI site redeploy marker after OPENAI_API_KEY configuration.
+AI site redeploy marker after access-control and rate-limit configuration.
