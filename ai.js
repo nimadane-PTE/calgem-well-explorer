@@ -1,3 +1,14 @@
+const aiAccessPanel = document.getElementById("ai-access-panel");
+const aiAssistantContent = document.getElementById("ai-assistant-content");
+const aiAccessForm = document.getElementById("ai-access-form");
+const aiAccessName = document.getElementById("ai-access-name");
+const aiAccessEmail = document.getElementById("ai-access-email");
+const aiAccessConsent = document.getElementById("ai-access-consent");
+const aiAccessSubmit = document.getElementById("ai-access-submit");
+const aiAccessResponse = document.getElementById("ai-access-response");
+const aiSignOut = document.getElementById("ai-sign-out");
+const aiUserLine = document.getElementById("ai-user-line");
+
 const aiForm = document.getElementById("ai-form");
 const aiInput = document.getElementById("ai-input");
 const aiSubmit = document.getElementById("ai-submit");
@@ -6,8 +17,50 @@ const aiResults = document.getElementById("ai-results");
 const hiddenCommandForm = document.getElementById("command-form");
 const hiddenCommandInput = document.getElementById("command-input");
 
+const TOKEN_KEY = "wellstar_ai_access_token";
+const USER_KEY = "wellstar_ai_access_user";
+const EXPIRY_KEY = "wellstar_ai_access_expiry";
+
 function text(value) {
   return value == null || String(value).trim() === "" ? "—" : String(value);
+}
+
+function getSession() {
+  const token = localStorage.getItem(TOKEN_KEY) || "";
+  const expiry = Date.parse(localStorage.getItem(EXPIRY_KEY) || "");
+  let user = null;
+  try {
+    user = JSON.parse(localStorage.getItem(USER_KEY) || "null");
+  } catch (_) {
+    user = null;
+  }
+  if (!token || !user || !Number.isFinite(expiry) || expiry <= Date.now()) return null;
+  return { token, user, expiry };
+}
+
+function saveSession(result) {
+  localStorage.setItem(TOKEN_KEY, result.token);
+  localStorage.setItem(USER_KEY, JSON.stringify(result.user));
+  localStorage.setItem(EXPIRY_KEY, result.expires_at);
+}
+
+function clearSession() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+  localStorage.removeItem(EXPIRY_KEY);
+}
+
+function showAccessGate(message = "") {
+  aiAccessPanel.hidden = false;
+  aiAssistantContent.hidden = true;
+  if (aiAccessResponse) aiAccessResponse.textContent = message;
+}
+
+function showAssistant(session) {
+  aiAccessPanel.hidden = true;
+  aiAssistantContent.hidden = false;
+  if (aiUserLine) aiUserLine.textContent = `Signed in as ${session.user.name} · ${session.user.email}`;
+  checkAIHealth();
 }
 
 function prettyField(field) {
@@ -132,15 +185,15 @@ async function checkAIHealth() {
     });
     const result = await readJsonResponse(response);
 
-    if (!response.ok) {
-      throw new Error(result.error || `AI health check failed with HTTP ${response.status}`);
-    }
-
+    if (!response.ok) throw new Error(result.error || `AI health check failed with HTTP ${response.status}`);
     if (!result.api_key_configured) {
       aiResponse.textContent = "AI function is live, but OPENAI_API_KEY is not configured for this Netlify project.";
       return;
     }
-
+    if (result.ai_disabled) {
+      aiResponse.textContent = "AI requests are temporarily disabled by the site owner.";
+      return;
+    }
     aiResponse.textContent = "AI service ready. Ask a WellSTAR question below.";
   } catch (error) {
     console.error("AI health check failed:", error);
@@ -149,6 +202,13 @@ async function checkAIHealth() {
 }
 
 async function askAI(message) {
+  const session = getSession();
+  if (!session) {
+    clearSession();
+    showAccessGate("Your AI access session has expired. Please sign in again.");
+    return;
+  }
+
   aiSubmit.disabled = true;
   aiResponse.textContent = "Understanding your question with AI and querying WellSTAR…";
   aiResults.replaceChildren();
@@ -156,20 +216,23 @@ async function askAI(message) {
   try {
     const response = await fetch("/api/wellstar-ai", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${session.token}`
+      },
       body: JSON.stringify({ message })
     });
 
     const result = await readJsonResponse(response);
-    if (!response.ok) {
-      throw new Error(result.error || `AI request failed with HTTP ${response.status}`);
+    if (response.status === 401) {
+      clearSession();
+      showAccessGate("Your AI access session is no longer valid. Please sign in again.");
+      return;
     }
+    if (!response.ok) throw new Error(result.error || `AI request failed with HTTP ${response.status}`);
 
     renderAnswer(result);
-
-    if (["map", "map_and_list"].includes(result.plan?.action)) {
-      runMapCommand(result.map_command);
-    }
+    if (["map", "map_and_list"].includes(result.plan?.action)) runMapCommand(result.map_command);
   } catch (error) {
     console.error("AI assistant request failed:", error);
     aiResponse.textContent = `AI request failed: ${error.message || "The AI assistant could not complete that request."}`;
@@ -178,22 +241,52 @@ async function askAI(message) {
   }
 }
 
-if (!aiForm || !aiInput || !aiSubmit || !aiResponse || !aiResults) {
-  console.error("AI interface initialization failed because one or more required elements are missing.");
-} else {
-  aiForm.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const message = aiInput.value.trim();
-    if (message) askAI(message);
-  });
+aiAccessForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  aiAccessSubmit.disabled = true;
+  aiAccessResponse.textContent = "Creating protected AI access…";
 
-  document.querySelectorAll("[data-ai-command]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const message = button.dataset.aiCommand;
-      aiInput.value = message;
-      askAI(message);
+  try {
+    const response = await fetch("/api/ai-access", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: aiAccessName.value.trim(),
+        email: aiAccessEmail.value.trim(),
+        consent: aiAccessConsent.checked
+      })
     });
-  });
+    const result = await readJsonResponse(response);
+    if (!response.ok) throw new Error(result.error || `Access request failed with HTTP ${response.status}`);
+    saveSession(result);
+    showAssistant(getSession());
+  } catch (error) {
+    aiAccessResponse.textContent = error.message || "Could not create AI access.";
+  } finally {
+    aiAccessSubmit.disabled = false;
+  }
+});
 
-  checkAIHealth();
-}
+aiSignOut?.addEventListener("click", () => {
+  clearSession();
+  if (aiResults) aiResults.replaceChildren();
+  showAccessGate("Signed out.");
+});
+
+aiForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const message = aiInput.value.trim();
+  if (message) askAI(message);
+});
+
+document.querySelectorAll("[data-ai-command]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const message = button.dataset.aiCommand;
+    aiInput.value = message;
+    askAI(message);
+  });
+});
+
+const initialSession = getSession();
+if (initialSession) showAssistant(initialSession);
+else showAccessGate();
